@@ -14,9 +14,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
-	"github.com/mm503/avahi-dns/internal/avahi"
-	"github.com/mm503/avahi-dns/internal/events"
-	"github.com/mm503/avahi-dns/internal/hostsfile"
+	"github.com/mm503/avahi-controller/internal/avahi"
+	"github.com/mm503/avahi-controller/internal/events"
+	"github.com/mm503/avahi-controller/internal/hostsfile"
 )
 
 const annotationHostname = "avahi.homelab/hostname"

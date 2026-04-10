@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
-	"github.com/mm503/avahi-dns/internal/hostsfile"
+	"github.com/mm503/avahi-controller/internal/hostsfile"
 )
 
 // --- fakes ---
