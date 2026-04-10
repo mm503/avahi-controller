@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: avahi-controller
+  namespace: kube-system
+  labels:
+    app: avahi-controller
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: avahi-controller
+  template:
+    metadata:
+      labels:
+        app: avahi-controller
+    spec:
+      serviceAccountName: avahi-controller
+      nodeSelector:
+        avahi-controller: "true"
+      tolerations:
+        - operator: Exists   # tolerate any taint on the designated node
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: avahi-hosts
+          hostPath:
+            path: /etc/avahi/hosts
+            type: FileOrCreate
+        - name: dbus-socket
+          hostPath:
+            path: /run/dbus/system_bus_socket
+            type: Socket
+      containers:
+        - name: controller
+          image: mm404/avahi-controller:latest
+          imagePullPolicy: Always
+          # imagePullPolicy: IfNotPresent
+          args:
+            - --cleanup-on-exit=false
+            - --verbose
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          volumeMounts:
+            - name: avahi-hosts
+              mountPath: /etc/avahi/hosts
+            - name: dbus-socket
+              mountPath: /run/dbus/system_bus_socket
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: DBUS_SYSTEM_BUS_ADDRESS
+              value: unix:path=/run/dbus/system_bus_socket
