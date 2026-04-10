@@ -10,7 +10,7 @@ permissions:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: mm404/avahi-dns
+  IMAGE_NAME: mm404/avahi-controller
 
 jobs:
   test:

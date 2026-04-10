@@ -17,11 +17,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	"github.com/mm503/avahi-dns/internal/avahi"
-	"github.com/mm503/avahi-dns/internal/controller"
-	"github.com/mm503/avahi-dns/internal/events"
-	"github.com/mm503/avahi-dns/internal/hostsfile"
-	"github.com/mm503/avahi-dns/internal/reconciler"
+	"github.com/mm503/avahi-controller/internal/avahi"
+	"github.com/mm503/avahi-controller/internal/controller"
+	"github.com/mm503/avahi-controller/internal/events"
+	"github.com/mm503/avahi-controller/internal/hostsfile"
+	"github.com/mm503/avahi-controller/internal/reconciler"
 )
 
 func main() {

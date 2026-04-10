@@ -1,4 +1,4 @@
-module github.com/mm503/avahi-dns
+module github.com/mm503/avahi-controller
 
 go 1.26.2
 

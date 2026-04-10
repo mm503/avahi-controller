@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
-	"github.com/mm503/avahi-dns/internal/reconciler"
+	"github.com/mm503/avahi-controller/internal/reconciler"
 )
 
 // sentinelKey is the single work-queue key used for all events.
