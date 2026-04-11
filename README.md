@@ -40,8 +40,8 @@ Writes are atomic: content is written to a temp file in the same directory, then
 |---|---|---|
 | `--hosts-file` | `/etc/avahi/hosts` | Path to the avahi hosts file |
 | `--kubeconfig` | *(in-cluster)* | Path to kubeconfig; empty uses in-cluster config |
-| `--cleanup-on-exit` | `false` | Remove managed block on shutdown |
-| `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write |
+| `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on shutdown |
+| `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write (modern avahi watches hosts files for changes)|
 | `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
 | `--resync-period` | `10m` | Informer resync interval |
 | `--verbose` | `false` | Log reconcile details (qualifying services, scan summary) |
