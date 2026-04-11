@@ -34,6 +34,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Get current release version
+        id: version
+        run: echo "version=$(jq -r '.["."]' .release-please-manifest.json)" >> $GITHUB_OUTPUT
+
+      - name: Build binaries
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o controller-linux-amd64 ./cmd/controller/
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o controller-linux-arm64 ./cmd/controller/
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -43,25 +57,25 @@ jobs:
           username: mm404
           password: ${{ secrets.DOCKER_HUB_KEY }}
 
-      - name: Get current release version
-        id: version
-        run: echo "version=$(jq -r '.["."]' .release-please-manifest.json)" >> $GITHUB_OUTPUT
+      - name: Set image tag
+        id: tag
+        run: |
+          BRANCH=$(echo "${GITHUB_REF_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          SHA="${GITHUB_SHA:0:7}"
+          echo "value=dev-${{ steps.version.outputs.version }}-${BRANCH}-${SHA}" >> $GITHUB_OUTPUT
 
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=dev-${{ steps.version.outputs.version }}-{{branch}}-{{sha}},enable=${{ github.ref_type == 'branch' }}
+      - name: Build and push per-arch images
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG=${{ steps.tag.outputs.value }}
+          docker buildx build --platform linux/amd64 -f Dockerfile.release --push -t ${IMAGE}:${TAG}-amd64 .
+          docker buildx build --platform linux/arm64 -f Dockerfile.release --push -t ${IMAGE}:${TAG}-arm64 .
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create and push multi-arch manifest
+        run: |
+          IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          TAG=${{ steps.tag.outputs.value }}
+          docker buildx imagetools create \
+            -t ${IMAGE}:${TAG} \
+            ${IMAGE}:${TAG}-amd64 \
+            ${IMAGE}:${TAG}-arm64
