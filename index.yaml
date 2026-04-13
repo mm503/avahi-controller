@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  avahi-controller:
+  - apiVersion: v2
+    appVersion: 0.3.0
+    created: "2026-04-13T21:45:42.808905751Z"
+    description: A Helm chart for avahi-controller
+    digest: 55a8ceeddcada63e74689c2cae4277321932955f0442a834d5a0c8e9ddd038fb
+    name: avahi-controller
+    type: application
+    urls:
+    - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.1/avahi-controller-0.1.1.tgz
+    version: 0.1.1
+generated: "2026-04-13T21:45:42.808911775Z"
