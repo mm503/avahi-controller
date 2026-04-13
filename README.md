@@ -45,8 +45,8 @@ Writes use `os.WriteFile` (truncate + write in place).
 | `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write (modern avahi watches hosts files for changes)|
 | `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
 | `--resync-period` | `10m` | Informer resync interval |
-| `--verbose` | `false` | Log reconcile details (qualifying services, scan summary) |
-| `--debug` | `false` | Log everything including client-go internals (very noisy) |
+| `--verbose` | `false` | Enable debug logging: per-service reconcile details and scan summary |
+| `--debug` | `false` | Enable debug logging and include client-go internals (very noisy) |
 
 ## Avahi reload
 

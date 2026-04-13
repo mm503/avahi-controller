@@ -52,6 +52,9 @@ func (r *Reconciler) Reconcile(_ context.Context) error {
 	if wantHash == gotHash {
 		slog.Debug("hosts file up to date, skipping write", "entries", len(desired))
 	} else {
+		if old, err := r.HostsMgr.ReadBlock(); err == nil {
+			logDiff(old, desired)
+		}
 		slog.Info("writing hosts file", "entries", len(desired))
 		if err := r.HostsMgr.WriteBlock(desired); err != nil {
 			return fmt.Errorf("write hosts block: %w", err)
@@ -129,6 +132,31 @@ func (r *Reconciler) qualifies(svc *corev1.Service) bool {
 	}
 	hostname, ok := svc.Annotations[annotationHostname]
 	return ok && strings.TrimSpace(hostname) != ""
+}
+
+// logDiff logs Info-level messages for DNS records that were added, removed, or updated.
+func logDiff(old, desired []hostsfile.HostEntry) {
+	oldMap := make(map[string]string, len(old))
+	for _, e := range old {
+		oldMap[e.Hostname] = e.IP
+	}
+	newMap := make(map[string]string, len(desired))
+	for _, e := range desired {
+		newMap[e.Hostname] = e.IP
+	}
+
+	for _, e := range desired {
+		if oldIP, exists := oldMap[e.Hostname]; !exists {
+			slog.Info("adding DNS record", "hostname", e.Hostname, "ip", e.IP)
+		} else if oldIP != e.IP {
+			slog.Info("updating DNS record", "hostname", e.Hostname, "ip", e.IP, "old_ip", oldIP)
+		}
+	}
+	for _, e := range old {
+		if _, exists := newMap[e.Hostname]; !exists {
+			slog.Info("removing DNS record", "hostname", e.Hostname, "ip", e.IP)
+		}
+	}
 }
 
 // loadBalancerIP returns the first allocated LoadBalancer IP, or "" if not yet assigned.
