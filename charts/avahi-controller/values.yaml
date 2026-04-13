@@ -6,7 +6,7 @@ image:
   repository: mm404/avahi-controller
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: ""
+  tag: "0.3.0"
 
 imagePullSecrets: []
 nameOverride: ""
