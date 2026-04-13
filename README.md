@@ -4,9 +4,11 @@ A Kubernetes controller that publishes LoadBalancer Service IPs to mDNS by manag
 
 ## How it works
 
-The controller runs as a single pod pinned to one node where `avahi-daemon` is installed. It watches Services cluster-wide and rewrites a managed block in the node's hosts file whenever the desired state changes. avahi-daemon picks up the change automatically (it watches the file by default).
+The controller runs as a single pod pinned to one node where `avahi-daemon` is installed. It watches Services cluster-wide and updates a managed block in the node's hosts file whenever the desired state changes. avahi-daemon picks up the change automatically (it watches the file by default).
 
-Desired state is always rebuilt from the full Service list — no incremental patching. Self-healing on pod restart and node reboot.
+This can be particularly useful in combination with MetalLB, which assigns LAN IPs to your Kubernetes LoadBalancers.
+
+Please note, this is not a production tool. mDNS is not a production-level solution. This is for a home lab and simple Kubernetes clusters.
 
 ## Annotation
 
@@ -17,7 +19,7 @@ annotations:
   avahi.homelab/hostname: "myapp.local"
 ```
 
-The controller ignores Services without this annotation and requeues with backoff if a LoadBalancer IP hasn't been assigned yet.
+The controller ignores Services without this annotation, and requeues with backoff if a LoadBalancer IP hasn't been assigned yet.
 
 ## Hosts file block
 
@@ -33,20 +35,18 @@ The controller owns only a marked block and never touches the rest of the file:
 ### END k8s-avahi-controller ###
 ```
 
-Writes use `os.WriteFile` (truncate + write in place).
-
 ## Flags
 
 | Flag | Default | Description |
 |---|---|---|
 | `--hosts-file` | `/etc/avahi/hosts` | Path to the avahi hosts file |
 | `--kubeconfig` | *(in-cluster)* | Path to kubeconfig; empty uses in-cluster config |
-| `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on shutdown |
+| `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on controller shutdown |
 | `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write (modern avahi watches hosts files for changes)|
 | `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
 | `--resync-period` | `10m` | Informer resync interval |
-| `--verbose` | `false` | Enable debug logging: per-service reconcile details and scan summary |
-| `--debug` | `false` | Enable debug logging and include client-go internals (very noisy) |
+| `--verbose` | `false` | Verbose logging: per-service reconcile details and scan summary |
+| `--debug` | `false` | Debug logging: same as verbose plus client-go internals (very noisy) |
 
 ## Avahi reload
 
@@ -65,7 +65,7 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 | Annotation added to existing Service | Treated as new entry |
 | Annotation removed | Entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → no write, no reload |
-| Manual edit to hosts file using a rename-based editor (nano, vim, etc.) | Editor creates a new file inode; the pod's hostPath bind mount (which is a single-file mount) still points to the old inode. Subsequent controller writes silently go to the old inode and are invisible to the host. **Workaround**: restart the pod to re-bind to the current inode. This is a known tradeoff of mounting a single file via hostPath; mounting the parent directory instead would fix it but widens the volume scope. |
+| **Manual edit** to hosts file using a rename-based editor (nano, vim, etc.) | Editor creates a new file inode; the pod's hostPath bind mount (which is a single-file mount) still points to the old inode. Subsequent controller writes silently go to the old inode and are invisible to the host. **Workaround**: restart the pod to re-bind to the current inode. **This is a known tradeoff** of mounting a single file via hostPath; mounting the parent directory instead would fix it but widens the volume scope. |
 
 ## Requirements
 
@@ -75,13 +75,17 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 
 ## Deployment
 
-### Helm
+### Label the node
+
+This is needed even on a single-node cluster (such as k3s and similar). Without the label, the pod's `nodeSelector` will not match any node and the pod will remain Pending. The controller is intentionally pinned to one node to ensure only one instance manages the hosts file on the node where `avahi-daemon` is running.
 
 Label the node where `avahi-daemon` is running:
 
 ```sh
 kubectl label node <node-name> avahi-controller=true
 ```
+
+### Helm
 
 Install the chart into `kube-system`:
 
@@ -135,7 +139,7 @@ helm upgrade avahi-controller avahi-controller/avahi-controller \
 kubectl apply -f deploy/
 ```
 
-## Docker image
+## Image
 
 ```
 mm404/avahi-controller:<version>
