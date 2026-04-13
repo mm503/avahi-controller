@@ -117,3 +117,57 @@ jobs:
             -t ${IMAGE}:latest \
             ${IMAGE}:${VERSION}-amd64 \
             ${IMAGE}:${VERSION}-arm64
+
+  update-chart:
+    runs-on: ubuntu-latest
+    needs: [release-please, docker-release]
+    if: needs.release-please.outputs.release_created == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Update chart appVersion and image tag
+        run: |
+          VERSION="${{ needs.release-please.outputs.tag_name }}"
+          VERSION="${VERSION#v}"
+          sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/avahi-controller/Chart.yaml
+          sed -i "s/^  tag: .*/  tag: \"${VERSION}\"/" charts/avahi-controller/values.yaml
+
+      - name: Bump chart version
+        run: |
+          CHART_VERSION=$(grep '^version:' charts/avahi-controller/Chart.yaml | awk '{print $2}')
+          NEW_CHART_VERSION=$(echo "$CHART_VERSION" | awk -F. '{$NF = $NF + 1; print}' OFS='.')
+          sed -i "s/^version: .*/version: ${NEW_CHART_VERSION}/" charts/avahi-controller/Chart.yaml
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add charts/avahi-controller/Chart.yaml charts/avahi-controller/values.yaml
+          git commit -m "chore(chart): update to app version ${{ needs.release-please.outputs.tag_name }}"
+          git push
+
+  helm-release:
+    runs-on: ubuntu-latest
+    needs: update-chart
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run chart-releaser
+        uses: helm/chart-releaser-action@v1.6.0
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

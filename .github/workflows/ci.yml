@@ -9,6 +9,21 @@ env:
   IMAGE_NAME: mm404/avahi-controller
 
 jobs:
+  helm-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint charts/avahi-controller
+
+      - name: Template chart
+        run: helm template avahi-controller charts/avahi-controller > /dev/null
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +43,7 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, helm-validate]
 
     steps:
       - name: Checkout repository

@@ -27,12 +27,13 @@ The controller owns only a marked block and never touches the rest of the file:
 # your static entries above are untouched
 
 ### BEGIN k8s-avahi-controller ###
+# Managed by avahi-controller. Do not edit between these markers.
 192.168.1.100 myapp.local
 192.168.1.101 otherapp.local
 ### END k8s-avahi-controller ###
 ```
 
-Writes are atomic: content is written to a temp file in the same directory, then `rename()`d over the original.
+Writes use `os.WriteFile` (truncate + write in place).
 
 ## Flags
 
@@ -64,6 +65,7 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 | Annotation added to existing Service | Treated as new entry |
 | Annotation removed | Entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → no write, no reload |
+| Manual edit to hosts file using a rename-based editor (nano, vim, etc.) | Editor creates a new file inode; the pod's hostPath bind mount (which is a single-file mount) still points to the old inode. Subsequent controller writes silently go to the old inode and are invisible to the host. **Workaround**: restart the pod to re-bind to the current inode. This is a known tradeoff of mounting a single file via hostPath; mounting the parent directory instead would fix it but widens the volume scope. |
 
 ## Requirements
 
@@ -73,7 +75,65 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 
 ## Deployment
 
-<!-- TODO: Helm chart / raw manifests -->
+### Helm
+
+Label the node where `avahi-daemon` is running:
+
+```sh
+kubectl label node <node-name> avahi-controller=true
+```
+
+Install the chart into `kube-system`:
+
+```sh
+helm repo add avahi-controller https://mm503.github.io/avahi-controller
+helm install avahi-controller avahi-controller/avahi-controller \
+  --namespace kube-system
+```
+
+Or from a local clone:
+
+```sh
+helm install avahi-controller ./charts/avahi-controller \
+  --namespace kube-system
+```
+
+#### Values
+
+| Key | Default | Description |
+|---|---|---|
+| `image.repository` | `mm404/avahi-controller` | Container image repository |
+| `image.tag` | *(chart appVersion)* | Image tag override |
+| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `args` | `[--cleanup-on-exit=false, --verbose]` | Controller flags |
+| `nodeSelector` | `{avahi-controller: "true"}` | Node selector for scheduling |
+| `tolerations` | `[{operator: Exists}]` | Tolerates any taint on the designated node |
+| `resources.requests` | `cpu: 10m, memory: 32Mi` | Resource requests |
+| `resources.limits` | `cpu: 50m, memory: 64Mi` | Resource limits |
+| `serviceAccount.create` | `true` | Create a ServiceAccount |
+| `rbac.create` | `true` | Create ClusterRole and ClusterRoleBinding |
+
+Example — enable `--reload` and point at a custom avahi service unit:
+
+```sh
+helm install avahi-controller ./charts/avahi-controller \
+  --namespace kube-system \
+  --set args="{--reload=true,--avahi-service=avahi.service,--verbose}"
+```
+
+#### Upgrade
+
+```sh
+helm repo update avahi-controller
+helm upgrade avahi-controller avahi-controller/avahi-controller \
+  --namespace kube-system
+```
+
+### Raw manifests
+
+```sh
+kubectl apply -f deploy/
+```
 
 ## Docker image
 

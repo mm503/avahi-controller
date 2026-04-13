@@ -1,0 +1,4 @@
+avahi-controller is deployed.
+
+To verify it is running:
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "avahi-controller.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
