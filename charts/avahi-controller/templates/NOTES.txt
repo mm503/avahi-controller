@@ -2,3 +2,15 @@ avahi-controller is deployed.
 
 To verify it is running:
   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "avahi-controller.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+---------------------------------------------------------------------------
+IMPORTANT: Node label required
+---------------------------------------------------------------------------
+The pod will remain Pending until a node is labeled to match the
+configured nodeSelector. Label the node where avahi-daemon is running:
+
+  kubectl label node <node-name> avahi-controller=true
+
+This is intentional — only one node should manage the avahi hosts file,
+and it must be the node where avahi-daemon is installed and running.
+---------------------------------------------------------------------------
