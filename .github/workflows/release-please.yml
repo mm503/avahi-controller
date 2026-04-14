@@ -137,6 +137,7 @@ jobs:
           VERSION="${{ needs.release-please.outputs.tag_name }}"
           VERSION="${VERSION#v}"
           sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/avahi-controller/Chart.yaml
+          sed -i "s|image: mm404/avahi-controller:.*|image: mm404/avahi-controller:${VERSION}|" charts/avahi-controller/Chart.yaml
           sed -i "s/^  tag: .*/  tag: \"${VERSION}\"/" charts/avahi-controller/values.yaml
 
       - name: Bump chart version
