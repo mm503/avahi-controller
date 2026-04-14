@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/mm503/avahi-controller/compare/v0.3.0...v0.4.0) (2026-04-14)
+
+
+### Features
+
+* **chart:** add README, LICENSE, ArtifactHub annotations and node label notice ([#21](https://github.com/mm503/avahi-controller/issues/21)) ([345b9ec](https://github.com/mm503/avahi-controller/commit/345b9ec2eb844f91814dc2fe25c0b5f5c9fa00c7))
+
+
+### Bug Fixes
+
+* **ci:** set correct permissions ([#19](https://github.com/mm503/avahi-controller/issues/19)) ([f3ea9fe](https://github.com/mm503/avahi-controller/commit/f3ea9fef24c8eb87b7d82fe12333407ff4ab6016))
+
 ## [0.3.0](https://github.com/mm503/avahi-controller/compare/v0.2.0...v0.3.0) (2026-04-13)
 
 
