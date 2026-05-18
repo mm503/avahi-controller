@@ -4,6 +4,24 @@ entries:
   - annotations:
       artifacthub.io/images: |
         - name: avahi-controller
+          image: mm404/avahi-controller:0.4.4
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+    apiVersion: v2
+    appVersion: 0.4.4
+    created: "2026-05-18T23:37:38.046538563Z"
+    description: A Helm chart for avahi-controller
+    digest: ba0df6fdf3adf588619c97054ea463787b4aaa156c9de07d22142ee9a7e4a9a1
+    name: avahi-controller
+    type: application
+    urls:
+    - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.6/avahi-controller-0.1.6.tgz
+    version: 0.1.6
+  - annotations:
+      artifacthub.io/images: |
+        - name: avahi-controller
           image: mm404/avahi-controller:0.4.3
           platforms:
             - linux/amd64
@@ -83,4 +101,4 @@ entries:
     urls:
     - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.1/avahi-controller-0.1.1.tgz
     version: 0.1.1
-generated: "2026-05-09T17:14:25.467667999Z"
+generated: "2026-05-18T23:37:38.046568399Z"
