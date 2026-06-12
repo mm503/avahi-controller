@@ -180,7 +180,7 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch"]
-  - apiGroups: ["events.k8s.io"]
+  - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
 ```
