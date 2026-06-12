@@ -90,7 +90,7 @@ Write sequence:
 2. Replace content between markers (or append block if markers absent)
 3. Write via `os.WriteFile` with 0644 permissions (readable by avahi user)
 
-Entries inside the block are sorted by IP. Skip write + reload entirely if content hash matches current block — avoids unnecessary reloads on pod restarts when state is already correct.
+Entries inside the block are sorted by IP, then hostname (deterministic even when Services share an IP). Skip write + reload entirely if content hash matches current block — avoids unnecessary reloads on pod restarts when state is already correct.
 
 ---
 
@@ -196,7 +196,7 @@ rules:
 | MetalLB reassigns IP | Update event → reconcile rewrites entry |
 | Service deleted | Delete event → entry removed |
 | Node reboots, file wiped | Pod reschedules to same node (pinned), startup reconcile rewrites |
-| Two Services claim same hostname | Log error, emit k8s Warning Event, skip second — first writer wins |
+| Two Services claim same hostname | Log error, emit k8s Warning Event, skip loser — lowest namespace/name wins deterministically |
 | Annotation added to existing Service | Update event → treated as new entry |
 | Annotation removed | Update event → entry removed, same as delete |
 | avahi-daemon not running | Log error, retry with exponential backoff |

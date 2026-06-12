@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -81,6 +82,16 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	if err != nil {
 		return nil, false, fmt.Errorf("list services: %w", err)
 	}
+
+	// The lister returns services in nondeterministic (map) order. Sort by
+	// namespace/name so hostname conflicts resolve to the same winner on
+	// every pass instead of flapping between reconciles.
+	sort.Slice(svcs, func(i, j int) bool {
+		if svcs[i].Namespace != svcs[j].Namespace {
+			return svcs[i].Namespace < svcs[j].Namespace
+		}
+		return svcs[i].Name < svcs[j].Name
+	})
 
 	// hostname → "namespace/name" of the first Service to claim it (conflict detection).
 	claimed := make(map[string]string)

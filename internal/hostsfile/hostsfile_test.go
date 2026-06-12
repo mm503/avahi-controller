@@ -264,6 +264,23 @@ func TestWriteBlock_BlankLineBeforeBlock(t *testing.T) {
 	}
 }
 
+func TestWriteBlock_SharedIPSortedByHostname(t *testing.T) {
+	m, path := newManager(t, "")
+
+	err := m.WriteBlock([]HostEntry{
+		{IP: "10.0.0.1", Hostname: "zeta.local"},
+		{IP: "10.0.0.1", Hostname: "alpha.local"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := readFile(t, path)
+	if strings.Index(out, "alpha.local") > strings.Index(out, "zeta.local") {
+		t.Errorf("entries sharing an IP not sorted by hostname:\n%s", out)
+	}
+}
+
 // --- HashBlock tests ---
 
 func TestHashBlock_Deterministic(t *testing.T) {
@@ -280,6 +297,23 @@ func TestHashBlock_Deterministic(t *testing.T) {
 
 	if m.HashBlock(entries1) != m.HashBlock(entries2) {
 		t.Error("hash not deterministic across different input orders")
+	}
+}
+
+func TestHashBlock_DeterministicWithSharedIP(t *testing.T) {
+	m := &Manager{}
+
+	entries1 := []HostEntry{
+		{IP: "10.0.0.1", Hostname: "b.local"},
+		{IP: "10.0.0.1", Hostname: "a.local"},
+	}
+	entries2 := []HostEntry{
+		{IP: "10.0.0.1", Hostname: "a.local"},
+		{IP: "10.0.0.1", Hostname: "b.local"},
+	}
+
+	if m.HashBlock(entries1) != m.HashBlock(entries2) {
+		t.Error("hash not deterministic when entries share an IP")
 	}
 }
 

@@ -128,8 +128,10 @@ func replaceBlock(existing string, entries []HostEntry) string {
 	return trimmed + "\n\n" + block + "\n"
 }
 
-// renderBlock formats entries as the managed block string, sorted by IP.
-// Returns empty string if entries is nil/empty (signals block removal).
+// renderBlock formats entries as the managed block string, sorted by IP then
+// hostname so the output is deterministic even when Services share an IP
+// (e.g. MetalLB IP sharing). Returns empty string if entries is nil/empty
+// (signals block removal).
 func renderBlock(entries []HostEntry) string {
 	if len(entries) == 0 {
 		return ""
@@ -138,7 +140,10 @@ func renderBlock(entries []HostEntry) string {
 	sorted := make([]HostEntry, len(entries))
 	copy(sorted, entries)
 	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].IP < sorted[j].IP
+		if sorted[i].IP != sorted[j].IP {
+			return sorted[i].IP < sorted[j].IP
+		}
+		return sorted[i].Hostname < sorted[j].Hostname
 	})
 
 	var sb strings.Builder
