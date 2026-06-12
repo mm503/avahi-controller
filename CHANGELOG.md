@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.6](https://github.com/mm503/avahi-controller/compare/v0.4.5...v0.4.6) (2026-06-12)
+
+
+### Bug Fixes
+
+* **controller:** treat SIGTERM during cache sync as clean shutdown ([#35](https://github.com/mm503/avahi-controller/issues/35)) ([f531a44](https://github.com/mm503/avahi-controller/commit/f531a44dbf397dec782f56f0d83a27edbbd1463d))
+* make entry ordering and conflict resolution deterministic ([#37](https://github.com/mm503/avahi-controller/issues/37)) ([f94bff9](https://github.com/mm503/avahi-controller/commit/f94bff9f3dcee3706d0fa9bab6fdbea47e4e5e78))
+* **reconciler:** retry avahi reload after a failed attempt ([#36](https://github.com/mm503/avahi-controller/issues/36)) ([866d0db](https://github.com/mm503/avahi-controller/commit/866d0db603cdc7686eb5cdb620f7918691247176))
+* **reconciler:** validate hostname annotation before writing hosts file ([#38](https://github.com/mm503/avahi-controller/issues/38)) ([095273f](https://github.com/mm503/avahi-controller/commit/095273f904c8cb6f071b14f00cbb6e9f369f0427))
+
 ## [0.4.5](https://github.com/mm503/avahi-controller/compare/v0.4.4...v0.4.5) (2026-06-03)
 
 
