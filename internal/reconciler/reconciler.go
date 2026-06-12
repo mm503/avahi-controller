@@ -32,6 +32,11 @@ type Reconciler struct {
 	Reloader avahi.Reloader // nil means reload is disabled
 	Recorder *events.Recorder
 	Client   kubernetes.Interface
+
+	// reloadPending is set after a successful write whose reload failed, so
+	// the retry attempts the reload even though the file content already
+	// matches. Only touched by the single worker goroutine.
+	reloadPending bool
 }
 
 // Reconcile scans all Services, builds desired state, and writes the hosts file if changed.
@@ -59,12 +64,15 @@ func (r *Reconciler) Reconcile(_ context.Context) error {
 		if err := r.HostsMgr.WriteBlock(desired); err != nil {
 			return fmt.Errorf("write hosts block: %w", err)
 		}
-		if r.Reloader != nil {
-			if err := r.Reloader.Reload(); err != nil {
-				return fmt.Errorf("reload avahi: %w", err)
-			}
-			slog.Info("avahi reloaded")
+		r.reloadPending = r.Reloader != nil
+	}
+
+	if r.reloadPending {
+		if err := r.Reloader.Reload(); err != nil {
+			return fmt.Errorf("reload avahi: %w", err)
 		}
+		r.reloadPending = false
+		slog.Info("avahi reloaded")
 	}
 
 	if needsRequeue {

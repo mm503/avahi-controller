@@ -217,6 +217,37 @@ func TestReconcile_SkipsReloadWhenUnchanged(t *testing.T) {
 	}
 }
 
+func TestReconcile_RetriesReloadAfterFailure(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
+	reloader := &fakeReloader{err: errors.New("avahi-daemon not running")}
+	r, _ := newReconciler(t, []*corev1.Service{svc}, reloader)
+
+	if err := r.Reconcile(context.Background()); err == nil {
+		t.Fatal("expected error from failed reload")
+	}
+
+	// The file was written, so the hash now matches — but the reload must
+	// still be retried on the next pass.
+	reloader.called = false
+	reloader.err = nil
+
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatalf("retry should succeed: %v", err)
+	}
+	if !reloader.called {
+		t.Error("expected reload to be retried after earlier failure")
+	}
+
+	// Once the reload succeeds, further unchanged passes must not reload.
+	reloader.called = false
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if reloader.called {
+		t.Error("reload should not repeat after a successful retry")
+	}
+}
+
 func TestReconcile_NoReloaderNilSafe(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
 	r, _ := newReconciler(t, []*corev1.Service{svc}, nil) // nil reloader
