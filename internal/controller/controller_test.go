@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +20,30 @@ func newTestController() *Controller {
 func makeSvc(ns, name string) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+	}
+}
+
+// --- Run ---
+
+func TestRun_ReturnsNilWhenCancelledDuringCacheSync(t *testing.T) {
+	// Informer is never started, so HasSynced stays false and Run blocks in
+	// WaitForCacheSync until the context is cancelled.
+	informer := cache.NewSharedIndexInformer(&cache.ListWatch{}, &corev1.Service{}, 0, cache.Indexers{})
+	c := New(informer, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("shutdown during cache sync should be clean, got error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not return after context cancellation")
 	}
 }
 
