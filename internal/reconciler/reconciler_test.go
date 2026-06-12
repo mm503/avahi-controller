@@ -177,6 +177,29 @@ func TestBuildDesiredEntries_HostnameConflict(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredEntries_ConflictWinnerIsDeterministic(t *testing.T) {
+	svc1 := makeSvc("default", "svc1", "app.local", "10.0.0.1")
+	svc2 := makeSvc("default", "svc2", "app.local", "10.0.0.2")
+
+	// Same services, opposite lister order — winner must not change.
+	for _, svcs := range [][]*corev1.Service{
+		{svc1, svc2},
+		{svc2, svc1},
+	} {
+		r, _ := newReconciler(t, svcs, nil)
+		entries, _, err := r.buildDesiredEntries()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Fatalf("expected 1 entry, got %d", len(entries))
+		}
+		if entries[0].IP != "10.0.0.1" {
+			t.Errorf("conflict winner should be svc1 (lowest namespace/name) regardless of lister order, got IP %s", entries[0].IP)
+		}
+	}
+}
+
 // --- Reconcile integration ---
 
 func TestReconcile_WritesFileOnFirstRun(t *testing.T) {
