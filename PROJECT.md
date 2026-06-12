@@ -57,6 +57,7 @@ On any event:
 Per-Service filtering during scan:
   - type: LoadBalancer? No → skip
   - Has annotation? No → skip
+  - Annotation is a valid RFC-1123 hostname? No → skip + Warning Event
   - Has .status.loadBalancer.ingress[0].ip? No → requeue with backoff
 
 On startup:
@@ -198,6 +199,7 @@ rules:
 | Node reboots, file wiped | Pod reschedules to same node (pinned), startup reconcile rewrites |
 | Two Services claim same hostname | Log error, emit k8s Warning Event, skip loser — lowest namespace/name wins deterministically |
 | Annotation added to existing Service | Update event → treated as new entry |
+| Annotation is not a valid hostname | Log error, emit k8s Warning Event, skip — value is never written to the file |
 | Annotation removed | Update event → entry removed, same as delete |
 | avahi-daemon not running | Log error, retry with exponential backoff |
 | Pod restarts, file already correct | Hash match → no write, no reload |

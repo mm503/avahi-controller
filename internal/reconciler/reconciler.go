@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -25,6 +26,17 @@ const annotationHostname = "avahi.homelab/hostname"
 // ErrMissingIP is returned when a qualifying Service has no LoadBalancer IP yet.
 // The caller should requeue with backoff.
 var ErrMissingIP = fmt.Errorf("service has no LoadBalancer IP yet")
+
+// hostnamePattern matches RFC-1123 hostnames (dot-separated alphanumeric
+// labels, hyphens allowed inside a label). The annotation value is written
+// verbatim into the hosts file, so anything else — embedded whitespace,
+// newlines, marker text — must be rejected to protect file integrity.
+var hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
+
+// validHostname reports whether s is safe and valid for a hosts file entry.
+func validHostname(s string) bool {
+	return len(s) <= 253 && hostnamePattern.MatchString(s)
+}
 
 // Reconciler performs full desired-state reconciliation on every call.
 type Reconciler struct {
@@ -122,6 +134,15 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 
 		hostname := strings.TrimSpace(svc.Annotations[annotationHostname])
 		key := svc.Namespace + "/" + svc.Name
+
+		if !validHostname(hostname) {
+			slog.Error("invalid hostname annotation, skipping service", "hostname", hostname, "service", key)
+			if r.Recorder != nil {
+				r.Recorder.Warnf(svc, "InvalidHostname",
+					"annotation %s value %q is not a valid hostname", annotationHostname, hostname)
+			}
+			continue
+		}
 
 		if owner, conflict := claimed[hostname]; conflict {
 			slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner, "skipped", key)

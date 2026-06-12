@@ -200,6 +200,49 @@ func TestBuildDesiredEntries_ConflictWinnerIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredEntries_RejectsInvalidHostname(t *testing.T) {
+	invalid := []string{
+		"has space.local",
+		"inject.local\n10.0.0.9 evil.local",
+		"fake.local\n### END k8s-avahi-controller ###",
+		"-leading-hyphen.local",
+		"trailing-dot.local.",
+		"under_score.local",
+		strings.Repeat("a", 254),
+	}
+
+	for _, hostname := range invalid {
+		svc := makeSvc("default", "svc", hostname, "10.0.0.1")
+		r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+		entries, requeue, err := r.buildDesiredEntries()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("hostname %q should be rejected, got entries %v", hostname, entries)
+		}
+		if requeue {
+			t.Errorf("hostname %q should not trigger requeue", hostname)
+		}
+	}
+}
+
+func TestBuildDesiredEntries_AcceptsValidHostnames(t *testing.T) {
+	valid := []string{"app.local", "APP.Local", "a.b-c.local", "single"}
+
+	for _, hostname := range valid {
+		svc := makeSvc("default", "svc", hostname, "10.0.0.1")
+		r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+		entries, _, err := r.buildDesiredEntries()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 {
+			t.Errorf("hostname %q should be accepted, got entries %v", hostname, entries)
+		}
+	}
+}
+
 // --- Reconcile integration ---
 
 func TestReconcile_WritesFileOnFirstRun(t *testing.T) {
