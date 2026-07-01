@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -91,6 +92,21 @@ func replaceBlock(existing string, entries []HostEntry) string {
 
 	beginIdx := strings.Index(existing, beginMarker)
 	endIdx := strings.Index(existing, endMarker)
+
+	// Malformed markers — one missing, or END before BEGIN — come from a
+	// truncated write or a hand edit. Drop everything from the first marker
+	// onward and rebuild: appending a fresh block alongside broken markers
+	// would keep the hash mismatched and grow the file on every reconcile.
+	wellFormed := beginIdx != -1 && endIdx != -1 && beginIdx < endIdx
+	if !wellFormed && (beginIdx != -1 || endIdx != -1) {
+		first := beginIdx
+		if first == -1 || (endIdx != -1 && endIdx < first) {
+			first = endIdx
+		}
+		slog.Warn("hosts file has malformed managed-block markers, rebuilding block")
+		existing = existing[:first]
+		beginIdx, endIdx = -1, -1
+	}
 
 	if beginIdx != -1 && endIdx != -1 && beginIdx < endIdx {
 		before := strings.TrimRight(existing[:beginIdx], "\n")
