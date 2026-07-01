@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.8](https://github.com/mm503/avahi-controller/compare/v0.4.7...v0.4.8) (2026-07-01)
+
+
+### Bug Fixes
+
+* **avahi:** plumb context through Reload and bound the D-Bus call ([e9a0710](https://github.com/mm503/avahi-controller/commit/e9a0710cb4a006f6224087e79340fcc2f88324d7))
+* **controller:** wait for in-flight reconcile before Run returns ([9184c6d](https://github.com/mm503/avahi-controller/commit/9184c6df1dce1d06bc6383e9a0fcc45b0eea4cc1))
+* **deps:** update actions/checkout action to v7 ([#43](https://github.com/mm503/avahi-controller/issues/43)) ([21b3acb](https://github.com/mm503/avahi-controller/commit/21b3acbba856bdecbec56650c0ff5a727fc5e363))
+* **hostsfile:** rebuild managed block when markers are malformed ([7c10a24](https://github.com/mm503/avahi-controller/commit/7c10a24d7ba78cdeef4922543350e3f3b99b050f))
+* **reconciler:** make hostname conflict detection case-insensitive ([aa32d8a](https://github.com/mm503/avahi-controller/commit/aa32d8adc4f7b475202b1f107a1baca66760fc02))
+* **reconciler:** reject IP-shaped hostnames, warn once on non-.local names ([1dde1c1](https://github.com/mm503/avahi-controller/commit/1dde1c1bb550e4dfa2b8db1a6266f8dbaee21306))
+* **reconciler:** scan all LoadBalancer ingress entries for an IP ([26356f0](https://github.com/mm503/avahi-controller/commit/26356f03207063968f166215e5f4ae26d86ed327))
+* **reconciler:** surface services stuck waiting for a LoadBalancer IP ([fb04292](https://github.com/mm503/avahi-controller/commit/fb0429225a733fb0e07381e14f29bb2de0dbc41e))
+
 ## [0.4.7](https://github.com/mm503/avahi-controller/compare/v0.4.6...v0.4.7) (2026-06-14)
 
 
