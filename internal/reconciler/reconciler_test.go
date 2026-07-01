@@ -141,6 +141,45 @@ func TestBuildDesiredEntries_MissingIP_SignalsRequeue(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredEntries_PendingIPCountsAccumulateAndReset(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.local", "")
+	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+
+	for i := 1; i <= 3; i++ {
+		if _, _, err := r.buildDesiredEntries(); err != nil {
+			t.Fatal(err)
+		}
+		if got := r.pendingIPCounts["default/svc"]; got != i {
+			t.Fatalf("after pass %d: pending count = %d, want %d", i, got, i)
+		}
+	}
+
+	// Once the IP is assigned the counter must be cleared.
+	r.Lister = &fakeServiceLister{svcs: []*corev1.Service{
+		makeSvc("default", "svc", "app.local", "10.0.0.1"),
+	}}
+	if _, _, err := r.buildDesiredEntries(); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.pendingIPCounts) != 0 {
+		t.Errorf("pending counts should be cleared after IP assignment, got %v", r.pendingIPCounts)
+	}
+}
+
+func TestBuildDesiredEntries_WarnsAtPendingThreshold(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.local", "")
+	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r.pendingIPCounts = map[string]int{"default/svc": pendingIPEventThreshold - 1}
+
+	buf := captureLog(t)
+	if _, _, err := r.buildDesiredEntries(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "still has no LoadBalancer IP") {
+		t.Errorf("expected warning at threshold, got log output:\n%s", buf.String())
+	}
+}
+
 func TestBuildDesiredEntries_SingleService(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
 
