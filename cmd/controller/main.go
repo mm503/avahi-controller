@@ -103,7 +103,6 @@ func run() error {
 		HostsMgr: hostsMgr,
 		Reloader: reloader,
 		Recorder: recorder,
-		Client:   client,
 	}
 
 	ctrl := controller.New(svcInformer.Informer(), rec)
