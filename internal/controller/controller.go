@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -109,10 +110,18 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.queue.Add(sentinelKey)
 
 	// Run the worker loop until context is cancelled.
-	go wait.UntilWithContext(ctx, c.runWorker, time.Second)
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		wait.UntilWithContext(ctx, c.runWorker, time.Second)
+	})
 
 	<-ctx.Done()
 	slog.Info("controller shutting down")
+	// Shut down the queue so the worker's Get() unblocks, then wait for any
+	// in-flight reconcile to finish. Returning while a reconcile is still
+	// writing would let the caller's cleanup race the worker on the hosts file.
+	c.queue.ShutDown()
+	wg.Wait()
 	return nil
 }
 
