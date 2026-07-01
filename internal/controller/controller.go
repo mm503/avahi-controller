@@ -27,7 +27,7 @@ const sentinelKey = "reconcile"
 // Controller drives reconciliation from Kubernetes Service events.
 type Controller struct {
 	informer    cache.SharedIndexInformer
-	queue       workqueue.RateLimitingInterface
+	queue       workqueue.TypedRateLimitingInterface[string]
 	reconciler  *reconciler.Reconciler
 	initialDone atomic.Bool
 }
@@ -36,23 +36,25 @@ type Controller struct {
 func New(
 	informer cache.SharedIndexInformer,
 	rec *reconciler.Reconciler,
-) *Controller {
+) (*Controller, error) {
 	c := &Controller{
 		informer: informer,
-		queue: workqueue.NewRateLimitingQueueWithConfig(
-			workqueue.NewItemExponentialFailureRateLimiter(100*time.Millisecond, 30*time.Second),
-			workqueue.RateLimitingQueueConfig{Name: "avahi-controller"},
+		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.NewTypedItemExponentialFailureRateLimiter[string](100*time.Millisecond, 30*time.Second),
+			workqueue.TypedRateLimitingQueueConfig[string]{Name: "avahi-controller"},
 		),
 		reconciler: rec,
 	}
 
-	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+	if _, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    c.onAdd,
 		UpdateFunc: c.onUpdate,
 		DeleteFunc: c.onDelete,
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("add event handler: %w", err)
+	}
 
-	return c
+	return c, nil
 }
 
 func (c *Controller) onAdd(obj any) {

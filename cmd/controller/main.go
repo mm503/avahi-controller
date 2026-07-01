@@ -105,7 +105,10 @@ func run() error {
 		Recorder: recorder,
 	}
 
-	ctrl := controller.New(svcInformer.Informer(), rec)
+	ctrl, err := controller.New(svcInformer.Informer(), rec)
+	if err != nil {
+		return fmt.Errorf("create controller: %w", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()

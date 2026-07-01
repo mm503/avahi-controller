@@ -13,7 +13,7 @@ import (
 
 func newTestController() *Controller {
 	return &Controller{
-		queue: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[any]()),
+		queue: workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]()),
 	}
 }
 
@@ -29,7 +29,10 @@ func TestRun_ReturnsNilWhenCancelledDuringCacheSync(t *testing.T) {
 	// Informer is never started, so HasSynced stays false and Run blocks in
 	// WaitForCacheSync until the context is cancelled.
 	informer := cache.NewSharedIndexInformer(&cache.ListWatch{}, &corev1.Service{}, 0, cache.Indexers{})
-	c := New(informer, nil)
+	c, err := New(informer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
