@@ -267,6 +267,7 @@ func TestBuildDesiredEntries_RejectsInvalidHostname(t *testing.T) {
 		"trailing-dot.local.",
 		"under_score.local",
 		strings.Repeat("a", 254),
+		"192.168.1.1", // IP-shaped value: matches the hostname pattern but is surely a mistake
 	}
 
 	for _, hostname := range invalid {
@@ -298,6 +299,32 @@ func TestBuildDesiredEntries_AcceptsValidHostnames(t *testing.T) {
 		if len(entries) != 1 {
 			t.Errorf("hostname %q should be accepted, got entries %v", hostname, entries)
 		}
+	}
+}
+
+func TestBuildDesiredEntries_WarnsOnceForNonLocalHostname(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.example.com", "10.0.0.1")
+	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+
+	buf := captureLog(t)
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("non-.local hostname should still be accepted, got %v", entries)
+	}
+	if !strings.Contains(buf.String(), "does not end in .local") {
+		t.Errorf("expected non-.local warning on first pass, got:\n%s", buf.String())
+	}
+
+	// Second pass must not repeat the warning.
+	buf.Reset()
+	if _, _, err := r.buildDesiredEntries(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "does not end in .local") {
+		t.Errorf("warning should fire only once, got:\n%s", buf.String())
 	}
 }
 

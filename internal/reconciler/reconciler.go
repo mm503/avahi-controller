@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"regexp"
 	"sort"
 	"strings"
@@ -45,8 +46,11 @@ var ErrMissingIP = fmt.Errorf("service has no LoadBalancer IP yet")
 var hostnamePattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$`)
 
 // validHostname reports whether s is safe and valid for a hosts file entry.
+// IP-shaped values match the RFC-1123 pattern but are almost certainly a
+// mixed-up annotation (they would produce an "IP IP" hosts line), so they
+// are rejected too.
 func validHostname(s string) bool {
-	return len(s) <= 253 && hostnamePattern.MatchString(s)
+	return len(s) <= 253 && hostnamePattern.MatchString(s) && net.ParseIP(s) == nil
 }
 
 // Reconciler performs full desired-state reconciliation on every call.
@@ -67,6 +71,12 @@ type Reconciler struct {
 	// of requeuing silently forever. Only touched by the single worker
 	// goroutine.
 	pendingIPCounts map[string]int
+
+	// warnedNonLocal remembers which service/hostname pairs have already
+	// been warned about missing the .local suffix, so the warning fires
+	// once instead of on every reconcile pass. Only touched by the single
+	// worker goroutine.
+	warnedNonLocal map[string]bool
 }
 
 // Reconcile scans all Services, builds desired state, and writes the hosts file if changed.
@@ -142,6 +152,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	needsRequeue := false
 	skipped := 0
 	pendingIP := make(map[string]int)
+	nonLocal := make(map[string]bool)
 
 	for _, svc := range svcs {
 		if !r.qualifies(svc) {
@@ -180,6 +191,22 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		}
 
 		hostnameKey := strings.ToLower(hostname)
+
+		// mDNS resolvers only look up names under .local; anything else is
+		// published by avahi but effectively unreachable. Warn once.
+		if !strings.HasSuffix(hostnameKey, ".local") {
+			warnKey := key + " " + hostnameKey
+			nonLocal[warnKey] = true
+			if !r.warnedNonLocal[warnKey] {
+				slog.Warn("hostname does not end in .local, mDNS clients will not resolve it",
+					"hostname", hostname, "service", key)
+				if r.Recorder != nil {
+					r.Recorder.Warnf(svc, "NonLocalHostname",
+						"hostname %q does not end in .local and will not be resolvable via mDNS", hostname)
+				}
+			}
+		}
+
 		if owner, conflict := claimed[hostnameKey]; conflict {
 			slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner, "skipped", key)
 			if r.Recorder != nil {
@@ -200,6 +227,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	// Replace rather than update in place so services that got their IP (or
 	// stopped qualifying) drop out and start fresh if they regress later.
 	r.pendingIPCounts = pendingIP
+	r.warnedNonLocal = nonLocal
 
 	slog.Debug("scan complete", "total", len(svcs), "qualifying", len(entries), "skipped", skipped)
 	return entries, needsRequeue, nil
