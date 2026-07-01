@@ -13,7 +13,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
 	"github.com/mm503/avahi-controller/internal/avahi"
@@ -52,7 +51,6 @@ type Reconciler struct {
 	HostsMgr *hostsfile.Manager
 	Reloader avahi.Reloader // nil means reload is disabled
 	Recorder *events.Recorder
-	Client   kubernetes.Interface
 
 	// reloadPending is set after a successful write whose reload failed, so
 	// the retry attempts the reload even though the file content already
