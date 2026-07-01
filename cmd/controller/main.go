@@ -124,7 +124,10 @@ func run() error {
 		if err := hostsMgr.WriteBlock(nil); err != nil {
 			slog.Error("cleanup write failed", "error", err)
 		} else if reloader != nil {
-			if err := reloader.Reload(); err != nil {
+			// ctx is already cancelled here; give the final reload its own deadline.
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := reloader.Reload(cleanupCtx); err != nil {
 				slog.Error("cleanup reload failed", "error", err)
 			}
 		}

@@ -37,7 +37,7 @@ type fakeReloader struct {
 	err    error
 }
 
-func (f *fakeReloader) Reload() error {
+func (f *fakeReloader) Reload(_ context.Context) error {
 	f.called = true
 	return f.err
 }
@@ -88,7 +88,9 @@ func newReconciler(t *testing.T, svcs []*corev1.Service, reloader *fakeReloader)
 }
 
 // avahiReloader is a local alias so we can pass nil cleanly.
-type avahiReloader interface{ Reload() error }
+type avahiReloader interface {
+	Reload(ctx context.Context) error
+}
 
 // --- buildDesiredEntries tests ---
 

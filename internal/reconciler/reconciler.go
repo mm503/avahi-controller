@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,6 +30,9 @@ const annotationHostname = "avahi.homelab/hostname"
 // assignment time, so hitting it usually means a misconfigured or exhausted
 // address pool.
 const pendingIPEventThreshold = 20
+
+// reloadTimeout bounds a single avahi reload call over D-Bus.
+const reloadTimeout = 10 * time.Second
 
 // ErrMissingIP is returned when a qualifying Service has no LoadBalancer IP yet.
 // The caller should requeue with backoff.
@@ -68,7 +72,7 @@ type Reconciler struct {
 // Reconcile scans all Services, builds desired state, and writes the hosts file if changed.
 // Returns ErrMissingIP (wrapped) if any qualifying Service is still pending an IP —
 // the caller should requeue.
-func (r *Reconciler) Reconcile(_ context.Context) error {
+func (r *Reconciler) Reconcile(ctx context.Context) error {
 	desired, needsRequeue, err := r.buildDesiredEntries()
 	if err != nil {
 		return fmt.Errorf("build desired entries: %w", err)
@@ -94,7 +98,12 @@ func (r *Reconciler) Reconcile(_ context.Context) error {
 	}
 
 	if r.reloadPending {
-		if err := r.Reloader.Reload(); err != nil {
+		// Bound the D-Bus call so a hung system bus cannot block the single
+		// worker goroutine indefinitely.
+		reloadCtx, cancel := context.WithTimeout(ctx, reloadTimeout)
+		err := r.Reloader.Reload(reloadCtx)
+		cancel()
+		if err != nil {
 			return fmt.Errorf("reload avahi: %w", err)
 		}
 		r.reloadPending = false

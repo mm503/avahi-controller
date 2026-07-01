@@ -2,6 +2,7 @@
 package avahi
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/godbus/dbus/v5"
@@ -21,7 +22,7 @@ const (
 
 // Reloader abstracts the avahi reload mechanism.
 type Reloader interface {
-	Reload() error
+	Reload(ctx context.Context) error
 }
 
 // SystemdReloader signals avahi-daemon via systemd on the system D-Bus.
@@ -31,8 +32,11 @@ type SystemdReloader struct {
 	ServiceName string // e.g. "avahi-daemon.service" or "avahi.service"
 }
 
-func (r *SystemdReloader) Reload() error {
-	conn, err := dbus.ConnectSystemBus()
+// Reload queues a reload job with systemd. Note this is fire-and-forget:
+// ReloadUnit returning a job path only means systemd accepted the job — if
+// the reload itself later fails, that is not reported here.
+func (r *SystemdReloader) Reload(ctx context.Context) error {
+	conn, err := dbus.ConnectSystemBus(dbus.WithContext(ctx))
 	if err != nil {
 		return fmt.Errorf("connect to system bus: %w", err)
 	}
@@ -41,7 +45,7 @@ func (r *SystemdReloader) Reload() error {
 	obj := conn.Object(systemdBusName, dbus.ObjectPath(systemdObjectPath))
 
 	var jobPath dbus.ObjectPath
-	call := obj.Call(systemdReloadUnit, 0, r.ServiceName, "replace")
+	call := obj.CallWithContext(ctx, systemdReloadUnit, 0, r.ServiceName, "replace")
 	if call.Err != nil {
 		return fmt.Errorf("systemd ReloadUnit(%s): %w", r.ServiceName, call.Err)
 	}
