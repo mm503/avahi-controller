@@ -283,6 +283,70 @@ func TestWriteBlock_SharedIPSortedByHostname(t *testing.T) {
 
 // --- HashBlock tests ---
 
+// --- malformed marker tests ---
+
+// writeAndCheckStable writes entries twice on top of the given initial content
+// and asserts the result is well-formed and identical after both writes (i.e.
+// the write converged and does not grow the file on subsequent reconciles).
+func writeAndCheckStable(t *testing.T, initial string) string {
+	t.Helper()
+	m, path := newManager(t, initial)
+	entries := []HostEntry{{IP: "10.0.0.1", Hostname: "app.local"}}
+
+	if err := m.WriteBlock(entries); err != nil {
+		t.Fatal(err)
+	}
+	first := readFile(t, path)
+
+	if got := strings.Count(first, beginMarker); got != 1 {
+		t.Errorf("expected exactly 1 begin marker, got %d:\n%s", got, first)
+	}
+	if got := strings.Count(first, endMarker); got != 1 {
+		t.Errorf("expected exactly 1 end marker, got %d:\n%s", got, first)
+	}
+
+	// The written block must now hash-match desired state, so a second
+	// reconcile writes identical content instead of appending again.
+	got, err := m.HashCurrentBlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != m.HashBlock(entries) {
+		t.Error("current block hash does not match desired hash after write")
+	}
+	if err := m.WriteBlock(entries); err != nil {
+		t.Fatal(err)
+	}
+	if second := readFile(t, path); first != second {
+		t.Errorf("file changed on second write (unstable):\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+	return first
+}
+
+func TestWriteBlock_MalformedEndBeforeBegin(t *testing.T) {
+	content := writeAndCheckStable(t,
+		"1.2.3.4 static.local\n"+endMarker+"\norphan line\n"+beginMarker+"\n")
+	if !strings.Contains(content, "1.2.3.4 static.local") {
+		t.Errorf("content before the first marker should be preserved:\n%s", content)
+	}
+}
+
+func TestWriteBlock_MalformedBeginWithoutEnd(t *testing.T) {
+	// Simulates a truncated write: BEGIN marker plus partial block, no END.
+	content := writeAndCheckStable(t,
+		"1.2.3.4 static.local\n"+beginMarker+"\n10.0.0.9 stale.local\n")
+	if !strings.Contains(content, "1.2.3.4 static.local") {
+		t.Errorf("content before the first marker should be preserved:\n%s", content)
+	}
+	if strings.Contains(content, "stale.local") {
+		t.Errorf("truncated block content should be dropped:\n%s", content)
+	}
+}
+
+func TestWriteBlock_MalformedEndWithoutBegin(t *testing.T) {
+	writeAndCheckStable(t, "1.2.3.4 static.local\n"+endMarker+"\n")
+}
+
 func TestHashBlock_Deterministic(t *testing.T) {
 	m := &Manager{}
 
