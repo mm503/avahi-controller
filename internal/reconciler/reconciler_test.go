@@ -396,6 +396,25 @@ func TestLoadBalancerIP(t *testing.T) {
 			t.Errorf("got %q, want empty", got)
 		}
 	})
+	t.Run("skips hostname-only ingress entries", func(t *testing.T) {
+		svc := makeSvc("default", "svc", "", "")
+		svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{
+			{Hostname: "lb.example.com"},
+			{IP: "10.0.0.2"},
+		}
+		if got := loadBalancerIP(svc); got != "10.0.0.2" {
+			t.Errorf("got %q, want 10.0.0.2", got)
+		}
+	})
+	t.Run("returns empty when all entries are hostname-only", func(t *testing.T) {
+		svc := makeSvc("default", "svc", "", "")
+		svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{
+			{Hostname: "lb.example.com"},
+		}
+		if got := loadBalancerIP(svc); got != "" {
+			t.Errorf("got %q, want empty", got)
+		}
+	})
 }
 
 // --- logDiff tests ---
