@@ -13,7 +13,7 @@ import (
 
 // Recorder emits Kubernetes Events on behalf of the avahi controller.
 type Recorder struct {
-	recorder   record.EventRecorder
+	recorder    record.EventRecorder
 	broadcaster record.EventBroadcaster
 }
 
@@ -39,11 +39,6 @@ func New(client kubernetes.Interface, nodeName string) *Recorder {
 // Stop shuts down the event broadcaster.
 func (r *Recorder) Stop() {
 	r.broadcaster.Shutdown()
-}
-
-// Warn emits a Warning event on the given Service.
-func (r *Recorder) Warn(svc *corev1.Service, reason, message string) {
-	r.recorder.Event(svc, corev1.EventTypeWarning, reason, message)
 }
 
 // Warnf emits a formatted Warning event on the given Service.
