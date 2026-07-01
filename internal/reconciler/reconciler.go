@@ -113,7 +113,8 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		return svcs[i].Name < svcs[j].Name
 	})
 
-	// hostname → "namespace/name" of the first Service to claim it (conflict detection).
+	// lowercased hostname → "namespace/name" of the first Service to claim it.
+	// DNS/mDNS names are case-insensitive, so Foo.local and foo.local conflict.
 	claimed := make(map[string]string)
 	var entries []hostsfile.HostEntry
 	needsRequeue := false
@@ -144,7 +145,8 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 			continue
 		}
 
-		if owner, conflict := claimed[hostname]; conflict {
+		hostnameKey := strings.ToLower(hostname)
+		if owner, conflict := claimed[hostnameKey]; conflict {
 			slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner, "skipped", key)
 			if r.Recorder != nil {
 				r.Recorder.Warnf(svc, "HostnameConflict",
@@ -152,7 +154,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 			}
 			continue
 		}
-		claimed[hostname] = key
+		claimed[hostnameKey] = key
 
 		slog.Debug("include service", "service", key, "ip", ip, "hostname", hostname)
 		entries = append(entries, hostsfile.HostEntry{

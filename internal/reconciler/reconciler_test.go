@@ -177,6 +177,23 @@ func TestBuildDesiredEntries_HostnameConflict(t *testing.T) {
 	}
 }
 
+func TestBuildDesiredEntries_HostnameConflictIsCaseInsensitive(t *testing.T) {
+	svc1 := makeSvc("default", "svc1", "APP.Local", "10.0.0.1")
+	svc2 := makeSvc("default", "svc2", "app.local", "10.0.0.2")
+
+	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2}, nil)
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry (case-insensitive conflict, first wins), got %d", len(entries))
+	}
+	if entries[0].IP != "10.0.0.1" || entries[0].Hostname != "APP.Local" {
+		t.Errorf("unexpected winner: %+v", entries[0])
+	}
+}
+
 func TestBuildDesiredEntries_ConflictWinnerIsDeterministic(t *testing.T) {
 	svc1 := makeSvc("default", "svc1", "app.local", "10.0.0.1")
 	svc2 := makeSvc("default", "svc2", "app.local", "10.0.0.2")
