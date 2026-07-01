@@ -23,6 +23,14 @@ import (
 
 const annotationHostname = "avahi.homelab/hostname"
 
+// pendingIPEventThreshold is the number of consecutive reconcile passes a
+// qualifying Service may spend without a LoadBalancer IP before a Warning
+// event is emitted. With the controller's exponential backoff (capped at
+// 30s) this corresponds to roughly six minutes — well past normal MetalLB
+// assignment time, so hitting it usually means a misconfigured or exhausted
+// address pool.
+const pendingIPEventThreshold = 20
+
 // ErrMissingIP is returned when a qualifying Service has no LoadBalancer IP yet.
 // The caller should requeue with backoff.
 var ErrMissingIP = fmt.Errorf("service has no LoadBalancer IP yet")
@@ -50,6 +58,13 @@ type Reconciler struct {
 	// the retry attempts the reload even though the file content already
 	// matches. Only touched by the single worker goroutine.
 	reloadPending bool
+
+	// pendingIPCounts tracks how many consecutive reconcile passes each
+	// qualifying Service (namespace/name) has spent without a LoadBalancer
+	// IP, so a stuck assignment can be surfaced as a Warning event instead
+	// of requeuing silently forever. Only touched by the single worker
+	// goroutine.
+	pendingIPCounts map[string]int
 }
 
 // Reconcile scans all Services, builds desired state, and writes the hosts file if changed.
@@ -119,6 +134,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	var entries []hostsfile.HostEntry
 	needsRequeue := false
 	skipped := 0
+	pendingIP := make(map[string]int)
 
 	for _, svc := range svcs {
 		if !r.qualifies(svc) {
@@ -126,15 +142,26 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 			continue
 		}
 
+		key := svc.Namespace + "/" + svc.Name
+
 		ip := loadBalancerIP(svc)
 		if ip == "" {
-			slog.Debug("waiting for LoadBalancer IP", "service", svc.Namespace+"/"+svc.Name)
+			count := r.pendingIPCounts[key] + 1
+			pendingIP[key] = count
+			if count == pendingIPEventThreshold {
+				slog.Warn("service still has no LoadBalancer IP", "service", key, "attempts", count)
+				if r.Recorder != nil {
+					r.Recorder.Warnf(svc, "PendingLoadBalancerIP",
+						"service still has no LoadBalancer IP after %d reconcile attempts", count)
+				}
+			} else {
+				slog.Debug("waiting for LoadBalancer IP", "service", key)
+			}
 			needsRequeue = true
 			continue
 		}
 
 		hostname := strings.TrimSpace(svc.Annotations[annotationHostname])
-		key := svc.Namespace + "/" + svc.Name
 
 		if !validHostname(hostname) {
 			slog.Error("invalid hostname annotation, skipping service", "hostname", hostname, "service", key)
@@ -162,6 +189,10 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 			Hostname: hostname,
 		})
 	}
+
+	// Replace rather than update in place so services that got their IP (or
+	// stopped qualifying) drop out and start fresh if they regress later.
+	r.pendingIPCounts = pendingIP
 
 	slog.Debug("scan complete", "total", len(svcs), "qualifying", len(entries), "skipped", skipped)
 	return entries, needsRequeue, nil

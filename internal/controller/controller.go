@@ -138,20 +138,26 @@ func (c *Controller) processNextItem(ctx context.Context) bool {
 	defer c.queue.Done(item)
 
 	err := c.reconciler.Reconcile(ctx)
-	if err == nil {
-		if c.initialDone.CompareAndSwap(false, true) {
-			slog.Info("controller ready")
-		}
+	switch {
+	case err == nil:
+		c.markReady()
 		c.queue.Forget(item)
 		return true
-	}
-
-	// ErrMissingIP is expected while MetalLB is assigning an IP.
-	if errors.Is(err, reconciler.ErrMissingIP) {
+	case errors.Is(err, reconciler.ErrMissingIP):
+		// Expected while MetalLB is assigning an IP. The pass itself
+		// completed and the hosts file is up to date, so the controller
+		// still counts as ready.
+		c.markReady()
 		slog.Debug("requeuing, waiting for IP assignment")
-	} else {
+	default:
 		slog.Error("reconcile failed, requeuing with backoff", "error", err)
 	}
 	c.queue.AddRateLimited(item)
 	return true
+}
+
+func (c *Controller) markReady() {
+	if c.initialDone.CompareAndSwap(false, true) {
+		slog.Info("controller ready")
+	}
 }
