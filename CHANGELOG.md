@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/mm503/avahi-controller/compare/v0.4.9...v0.5.0) (2026-07-10)
+
+
+### Features
+
+* **reconciler:** log existing hosts file entries at startup ([c0f52f0](https://github.com/mm503/avahi-controller/commit/c0f52f0befaf8b7d3ca224eef00c7491bb0a42ff))
+
 ## [0.4.9](https://github.com/mm503/avahi-controller/compare/v0.4.8...v0.4.9) (2026-07-08)
 
 
