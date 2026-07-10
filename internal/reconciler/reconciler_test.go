@@ -579,6 +579,51 @@ func TestLogDiff(t *testing.T) {
 	}
 }
 
+func TestReconcile_LogsStartupInventoryOnce(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
+	r, mgr := newReconciler(t, []*corev1.Service{svc}, nil)
+
+	// Pre-populate the hosts file, simulating state left by a previous pod.
+	if err := mgr.WriteBlock([]hostsfile.HostEntry{
+		{IP: "10.0.0.1", Hostname: "app.local"},
+		{IP: "10.0.0.2", Hostname: "other.local"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	buf := captureLog(t)
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, w := range []string{"existing DNS record", "app.local", "10.0.0.1", "other.local", "10.0.0.2"} {
+		if !strings.Contains(out, w) {
+			t.Errorf("expected %q in startup log output:\n%s", w, out)
+		}
+	}
+
+	// Second pass must not repeat the inventory.
+	buf.Reset()
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "existing DNS record") {
+		t.Errorf("startup inventory should log only once, got:\n%s", buf.String())
+	}
+}
+
+func TestReconcile_LogsEmptyStartupInventory(t *testing.T) {
+	r, _ := newReconciler(t, nil, nil)
+
+	buf := captureLog(t)
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "startup: existing DNS records in hosts file") {
+		t.Errorf("expected startup summary even with empty hosts file, got:\n%s", buf.String())
+	}
+}
+
 func TestReconcile_ClearsFileWhenNoServices(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
 	reloader := &fakeReloader{}

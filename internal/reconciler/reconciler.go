@@ -77,12 +77,22 @@ type Reconciler struct {
 	// once instead of on every reconcile pass. Only touched by the single
 	// worker goroutine.
 	warnedNonLocal map[string]bool
+
+	// startupLogged is set after the first reconcile pass has logged the
+	// entries found in the hosts file, so the inventory is printed exactly
+	// once per process start. Only touched by the single worker goroutine.
+	startupLogged bool
 }
 
 // Reconcile scans all Services, builds desired state, and writes the hosts file if changed.
 // Returns ErrMissingIP (wrapped) if any qualifying Service is still pending an IP —
 // the caller should requeue.
 func (r *Reconciler) Reconcile(ctx context.Context) error {
+	if !r.startupLogged {
+		r.startupLogged = true
+		r.logStartupInventory()
+	}
+
 	desired, needsRequeue, err := r.buildDesiredEntries()
 	if err != nil {
 		return fmt.Errorf("build desired entries: %w", err)
@@ -124,6 +134,22 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		return fmt.Errorf("%w: one or more services pending IP assignment", ErrMissingIP)
 	}
 	return nil
+}
+
+// logStartupInventory logs every hostname/IP entry currently present in the
+// hosts file's managed block. It runs once, on the first reconcile after
+// startup, so a pod restart always shows what was published before any
+// incremental add/remove logging takes over.
+func (r *Reconciler) logStartupInventory() {
+	entries, err := r.HostsMgr.ReadBlock()
+	if err != nil {
+		slog.Warn("could not read hosts file for startup inventory", "error", err)
+		return
+	}
+	slog.Info("startup: existing DNS records in hosts file", "entries", len(entries))
+	for _, e := range entries {
+		slog.Info("existing DNS record", "hostname", e.Hostname, "ip", e.IP)
+	}
 }
 
 // buildDesiredEntries scans all Services from the in-memory lister and returns:
