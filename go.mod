@@ -5,7 +5,7 @@ go 1.26.2
 toolchain go1.26.5
 
 require (
-	github.com/go-logr/logr v1.4.3
+	github.com/go-logr/logr v1.4.4
 	github.com/godbus/dbus/v5 v5.2.2
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
