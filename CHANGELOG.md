@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.1](https://github.com/mm503/avahi-controller/compare/v0.5.0...v0.5.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **deps:** update actions/setup-go action to v7 ([1ee2bea](https://github.com/mm503/avahi-controller/commit/1ee2bea17c2f51243b4925eb40fcb7582970fa06))
+* **deps:** update kubernetes monorepo to v0.36.3 ([f025c19](https://github.com/mm503/avahi-controller/commit/f025c193b613c739ff0628a97ecff84844337917))
+* **deps:** update module github.com/go-logr/logr to v1.4.4 ([c677987](https://github.com/mm503/avahi-controller/commit/c6779871318e95b4165e47f53658966801cdbdd3))
+
 ## [0.5.0](https://github.com/mm503/avahi-controller/compare/v0.4.9...v0.5.0) (2026-07-10)
 
 
