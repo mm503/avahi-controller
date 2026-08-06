@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/mm503/avahi-controller/compare/v0.5.1...v0.5.2) (2026-08-06)
+
+
+### Bug Fixes
+
+* **controller:** log service adds at info level ([cbc6184](https://github.com/mm503/avahi-controller/commit/cbc6184721cb21b18b9530b7fcfea12d3581b7dc))
+
 ## [0.5.1](https://github.com/mm503/avahi-controller/compare/v0.5.0...v0.5.1) (2026-08-03)
 
 
