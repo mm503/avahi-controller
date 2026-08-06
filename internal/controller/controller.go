@@ -59,7 +59,14 @@ func New(
 
 func (c *Controller) onAdd(obj any) {
 	if svc, ok := obj.(*corev1.Service); ok {
-		slog.Debug("service added", "service", svc.Namespace+"/"+svc.Name)
+		// The initial list delivers an add for every existing Service; only
+		// adds after the startup reconcile are genuinely new, so keep the
+		// rest at debug.
+		if c.initialDone.Load() {
+			slog.Info("service added", "service", svc.Namespace+"/"+svc.Name)
+		} else {
+			slog.Debug("service added", "service", svc.Namespace+"/"+svc.Name)
+		}
 	}
 	c.queue.Add(sentinelKey)
 }
