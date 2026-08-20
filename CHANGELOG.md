@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0](https://github.com/mm503/avahi-controller/compare/v0.5.2...v0.6.0) (2026-08-20)
+
+
+### Features
+
+* **ci:** point dev builds at ghcr ([2c6bb50](https://github.com/mm503/avahi-controller/commit/2c6bb5012daff54587ed4852bbdaf2a089740c61))
+* **ci:** publish release images to ghcr ([85f6e0e](https://github.com/mm503/avahi-controller/commit/85f6e0e10c88539e9caf21ba217d31ea361f47e6))
+* point deployment artifacts at ghcr image ([11e1b44](https://github.com/mm503/avahi-controller/commit/11e1b44c41c19b46809d311db2aa310423d463de))
+
+
+### Bug Fixes
+
+* **deps:** update go toolchain directive to v1.26.6 ([2a5ec08](https://github.com/mm503/avahi-controller/commit/2a5ec08b52a966ec258a4c1a98e5586bc3b4e6f1))
+* **deps:** update go toolchain directive to v1.27.0 ([fabeed2](https://github.com/mm503/avahi-controller/commit/fabeed2767b750a6461d90e23867a65a65e7fd89))
+* **deps:** update golang docker tag to v1.26.6 ([83a1af5](https://github.com/mm503/avahi-controller/commit/83a1af5b7a2633a9ae0b561bc6ddb50ff3f11d04))
+* **deps:** update golang docker tag to v1.27.0 ([b3ed7f6](https://github.com/mm503/avahi-controller/commit/b3ed7f6bf2bfe96da0718370be4a502859405033))
+
 ## [0.5.2](https://github.com/mm503/avahi-controller/compare/v0.5.1...v0.5.2) (2026-08-06)
 
 
