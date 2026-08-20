@@ -2,13 +2,13 @@ apiVersion: v2
 name: avahi-controller
 description: A Helm chart for avahi-controller
 type: application
-version: 0.1.14
-appVersion: "0.5.2"
+version: 0.1.15
+appVersion: "0.6.0"
 annotations:
   artifacthub.io/license: MIT
   artifacthub.io/images: |
     - name: avahi-controller
-      image: ghcr.io/mm503/avahi-controller:0.5.2
+      image: ghcr.io/mm503/avahi-controller:0.6.0
       platforms:
         - linux/amd64
         - linux/arm64
