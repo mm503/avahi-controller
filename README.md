@@ -106,7 +106,7 @@ helm install avahi-controller ./charts/avahi-controller \
 
 | Key | Default | Description |
 |---|---|---|
-| `image.repository` | `mm404/avahi-controller` | Container image repository |
+| `image.repository` | `ghcr.io/mm503/avahi-controller` | Container image repository |
 | `image.tag` | *(chart appVersion)* | Image tag override |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `args` | `[--cleanup-on-exit=false, --verbose]` | Controller flags |
@@ -116,6 +116,9 @@ helm install avahi-controller ./charts/avahi-controller \
 | `resources.limits` | `cpu: 50m, memory: 64Mi` | Resource limits |
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
 | `rbac.create` | `true` | Create ClusterRole and ClusterRoleBinding |
+
+The chart defaults to GHCR. To pull from Docker Hub instead, set
+`--set image.repository=mm404/avahi-controller`.
 
 Example — enable `--reload` and point at a custom avahi service unit:
 
@@ -141,8 +144,16 @@ kubectl apply -f deploy/
 
 ## Image
 
+Release images are published to both registries, with tags `latest` and `x.y.z`:
+
 ```
-mm404/avahi-controller:<version>
+ghcr.io/mm503/avahi-controller:<version>
+docker.io/mm404/avahi-controller:<version>
 ```
 
-Available tags: `latest`, `x.y.z`, and `dev-*` builds from feature branches.
+Builds from feature branches go to a separate package, tagged
+`dev-<version>-<branch>-<sha>`:
+
+```
+ghcr.io/mm503/avahi-controller-dev:dev-<version>-<branch>-<sha>
+```
