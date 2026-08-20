@@ -66,7 +66,7 @@ The controller owns only a marked block and never touches the rest of the file:
 
 | Key | Default | Description |
 |---|---|---|
-| `image.repository` | `mm404/avahi-controller` | Container image repository |
+| `image.repository` | `ghcr.io/mm503/avahi-controller` | Container image repository |
 | `image.tag` | *(chart appVersion)* | Image tag override |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `args` | `[--cleanup-on-exit=false]` | Controller flags passed to the binary |
@@ -77,6 +77,10 @@ The controller owns only a marked block and never touches the rest of the file:
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
 | `rbac.create` | `true` | Create ClusterRole and ClusterRoleBinding |
 | `terminationGracePeriodSeconds` | `30` | Grace period for pod shutdown |
+
+Release images are published to both `ghcr.io/mm503/avahi-controller` and
+`docker.io/mm404/avahi-controller`. The chart defaults to GHCR; set
+`--set image.repository=mm404/avahi-controller` to pull from Docker Hub.
 
 ## Controller flags
 

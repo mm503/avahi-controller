@@ -3,7 +3,7 @@
 replicaCount: 1
 
 image:
-  repository: mm404/avahi-controller
+  repository: ghcr.io/mm503/avahi-controller
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "0.5.2"
