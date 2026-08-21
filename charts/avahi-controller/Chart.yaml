@@ -2,6 +2,19 @@ apiVersion: v2
 name: avahi-controller
 description: A Helm chart for avahi-controller
 type: application
+home: https://github.com/mm503/avahi-controller
+icon: https://github.com/avahi/avahi/blob/master/docs/avahi-logo.png
+sources:
+  - https://github.com/mm503/avahi-controller
+maintainers:
+  - name: mm503
+    url: https://github.com/mm503
+keywords:
+  - avahi
+  - mdns
+  - dns
+  - local
+  - metallb
 version: 0.1.15
 appVersion: "0.6.0"
 annotations:
