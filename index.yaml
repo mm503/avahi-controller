@@ -4,6 +4,37 @@ entries:
   - annotations:
       artifacthub.io/images: |
         - name: avahi-controller
+          image: ghcr.io/mm503/avahi-controller:0.6.1
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+    apiVersion: v2
+    appVersion: 0.6.1
+    created: "2026-08-21T16:36:11.848501631Z"
+    description: A Helm chart for avahi-controller
+    digest: 7341de54b76b9fcba6ed0c99daa981fb4a33d2fe49e450a9e97ba33aa39ab978
+    home: https://github.com/mm503/avahi-controller
+    icon: https://github.com/avahi/avahi/blob/master/docs/avahi-logo.png
+    keywords:
+    - avahi
+    - mdns
+    - dns
+    - local
+    - metallb
+    maintainers:
+    - name: mm503
+      url: https://github.com/mm503
+    name: avahi-controller
+    sources:
+    - https://github.com/mm503/avahi-controller
+    type: application
+    urls:
+    - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.16/avahi-controller-0.1.16.tgz
+    version: 0.1.16
+  - annotations:
+      artifacthub.io/images: |
+        - name: avahi-controller
           image: ghcr.io/mm503/avahi-controller:0.6.0
           platforms:
             - linux/amd64
@@ -263,4 +294,4 @@ entries:
     urls:
     - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.1/avahi-controller-0.1.1.tgz
     version: 0.1.1
-generated: "2026-08-20T14:14:47.820369039Z"
+generated: "2026-08-21T16:36:11.848565306Z"
