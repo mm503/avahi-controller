@@ -1,0 +1,248 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "avahi-controller values",
+  "description": "Values schema for the avahi-controller Helm chart.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "replicaCount",
+    "image",
+    "serviceAccount",
+    "rbac",
+    "terminationGracePeriodSeconds",
+    "volumes",
+    "volumeMounts"
+  ],
+  "properties": {
+    "global": {
+      "description": "Global values inherited when this chart is used as a subchart.",
+      "type": "object"
+    },
+    "replicaCount": {
+      "description": "Number of controller replicas. Only one instance may own the hosts file, so values other than 1 are not supported.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "image": {
+      "description": "Controller container image.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "pullPolicy"],
+      "properties": {
+        "repository": {
+          "description": "Image repository.",
+          "type": "string",
+          "minLength": 1
+        },
+        "pullPolicy": {
+          "description": "Image pull policy.",
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        },
+        "tag": {
+          "description": "Image tag. Defaults to the chart appVersion when empty.",
+          "type": "string"
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "description": "Secrets used to pull the image from a private registry.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "nameOverride": {
+      "description": "Override the chart name used in resource names and labels.",
+      "type": "string"
+    },
+    "fullnameOverride": {
+      "description": "Override the fully qualified name of the released resources.",
+      "type": "string"
+    },
+    "serviceAccount": {
+      "description": "ServiceAccount used by the controller pod.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create"],
+      "properties": {
+        "create": {
+          "description": "Create a ServiceAccount.",
+          "type": "boolean"
+        },
+        "annotations": {
+          "description": "Annotations added to the ServiceAccount.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "Name of the ServiceAccount. Generated from the fullname template when empty and create is true.",
+          "type": "string"
+        }
+      }
+    },
+    "rbac": {
+      "description": "RBAC resources required to watch Services and emit Events.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["create"],
+      "properties": {
+        "create": {
+          "description": "Create the ClusterRole and ClusterRoleBinding.",
+          "type": "boolean"
+        }
+      }
+    },
+    "podAnnotations": {
+      "description": "Annotations added to the controller pod.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "podLabels": {
+      "description": "Extra labels added to the controller pod.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "podSecurityContext": {
+      "description": "Pod-level security context.",
+      "type": "object"
+    },
+    "securityContext": {
+      "description": "Container-level security context. The controller writes the avahi hosts file on the host, so it runs as root by default.",
+      "type": "object"
+    },
+    "args": {
+      "description": "Command-line flags passed to the controller binary, e.g. --reload=true or --avahi-service=avahi.service.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "env": {
+      "description": "Environment variables for the controller container. NODE_NAME and DBUS_SYSTEM_BUS_ADDRESS are set by default.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "value": {
+            "type": "string"
+          },
+          "valueFrom": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "resources": {
+      "description": "Resource requests and limits for the controller container.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": {
+          "$ref": "#/definitions/resourceList"
+        },
+        "limits": {
+          "$ref": "#/definitions/resourceList"
+        }
+      }
+    },
+    "terminationGracePeriodSeconds": {
+      "description": "Grace period for pod shutdown, allowing cleanup of the managed hosts block.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "volumes": {
+      "description": "Pod volumes. Must provide the avahi hosts file and the D-Bus system socket from the host.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "volumeMounts": {
+      "description": "Volume mounts for the controller container. Must mount the avahi hosts file and the D-Bus system socket.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "mountPath"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mountPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "subPath": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "nodeSelector": {
+      "description": "Node selector pinning the controller to the node running avahi-daemon. The pod stays Pending until a node carries these labels.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "description": "Tolerations for the controller pod.",
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "affinity": {
+      "description": "Affinity rules for the controller pod.",
+      "type": "object"
+    }
+  },
+  "definitions": {
+    "resourceList": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "integer"]
+      },
+      "properties": {
+        "cpu": {
+          "type": ["string", "integer"]
+        },
+        "memory": {
+          "type": ["string", "integer"]
+        }
+      }
+    }
+  }
+}
