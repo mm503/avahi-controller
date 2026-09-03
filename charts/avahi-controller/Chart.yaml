@@ -15,13 +15,13 @@ keywords:
   - dns
   - local
   - metallb
-version: 0.1.16
-appVersion: "0.6.1"
+version: 0.1.17
+appVersion: "0.6.2"
 annotations:
   artifacthub.io/license: MIT
   artifacthub.io/images: |
     - name: avahi-controller
-      image: ghcr.io/mm503/avahi-controller:0.6.1
+      image: ghcr.io/mm503/avahi-controller:0.6.2
       platforms:
         - linux/amd64
         - linux/arm64
