@@ -149,6 +149,7 @@ jobs:
           sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/avahi-controller/Chart.yaml
           sed -i -E "s|(image: .*/avahi-controller):.*|\1:${VERSION}|" charts/avahi-controller/Chart.yaml
           sed -i "s/^  tag: .*/  tag: \"${VERSION}\"/" charts/avahi-controller/values.yaml
+          sed -i -E "s|(image: .*/avahi-controller):.*|\1:${VERSION}|" deploy/deployment.yaml
 
       - name: Bump chart version
         run: |
@@ -160,7 +161,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add charts/avahi-controller/Chart.yaml charts/avahi-controller/values.yaml
+          git add charts/avahi-controller/Chart.yaml charts/avahi-controller/values.yaml deploy/deployment.yaml
           git commit -m "chore(chart): update to app version ${{ needs.release-please.outputs.tag_name }}"
           git push
 

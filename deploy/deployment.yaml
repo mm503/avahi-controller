@@ -34,7 +34,7 @@ spec:
             type: Socket
       containers:
         - name: controller
-          image: ghcr.io/mm503/avahi-controller:0.4.7
+          image: ghcr.io/mm503/avahi-controller:0.6.2
           imagePullPolicy: IfNotPresent
           args:
             - --cleanup-on-exit=false
