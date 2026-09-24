@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.3](https://github.com/mm503/avahi-controller/compare/v0.6.2...v0.6.3) (2026-09-24)
+
+
+### Bug Fixes
+
+* **deps:** update kubernetes monorepo to v0.37.1 ([d966611](https://github.com/mm503/avahi-controller/commit/d966611f672b224ccd661955b442c1e6f5f04e00))
+* preserve avahi hosts inode and reject malformed blocks ([a1326e5](https://github.com/mm503/avahi-controller/commit/a1326e530f0bd3d9508d479ed10a1726cb00835c))
+* **release:** keep deploy/deployment.yaml image tag in sync with releases ([81d8fbd](https://github.com/mm503/avahi-controller/commit/81d8fbd7e6af15bea86f4a0a95a3f8ece3bbbb9b))
+
 ## [0.6.2](https://github.com/mm503/avahi-controller/compare/v0.6.1...v0.6.2) (2026-09-03)
 
 
