@@ -65,6 +65,7 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 | Annotation added to existing Service | Treated as new entry |
 | Annotation removed | Entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → no write, no reload |
+| Managed block markers are incomplete, reversed, or duplicated | Controller logs a reconciliation error and leaves the file untouched; repair the markers manually so static entries cannot be mistaken for managed content |
 | **Manual edit** to hosts file using a rename-based editor (nano, vim, etc.) | Editor creates a new file inode; the pod's hostPath bind mount (which is a single-file mount) still points to the old inode. Subsequent controller writes silently go to the old inode and are invisible to the host. **Workaround**: restart the pod to re-bind to the current inode. **This is a known tradeoff** of mounting a single file via hostPath; mounting the parent directory instead would fix it but widens the volume scope. |
 
 ## Requirements

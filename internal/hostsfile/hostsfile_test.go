@@ -1,6 +1,7 @@
 package hostsfile
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -264,6 +265,47 @@ func TestWriteBlock_BlankLineBeforeBlock(t *testing.T) {
 	}
 }
 
+func TestWriteBlock_AppendPreservesStaticWhitespace(t *testing.T) {
+	static := "# static\n\n\n"
+	m, path := newManager(t, static)
+	if err := m.WriteBlock([]HostEntry{{IP: "10.0.0.1", Hostname: "svc.local"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); !strings.HasPrefix(got, static) {
+		t.Fatalf("static prefix changed:\n%s", got)
+	}
+}
+
+func TestWriteBlock_AddRemoveCyclesDoNotGrowWhitespace(t *testing.T) {
+	for _, static := range []string{
+		"127.0.0.1 static.local",
+		"127.0.0.1 static.local\n",
+		"127.0.0.1 static.local\n\n\n",
+	} {
+		t.Run(strings.ReplaceAll(static, "\n", "_"), func(t *testing.T) {
+			m, path := newManager(t, static)
+			var afterFirst string
+			for cycle := 0; cycle < 10; cycle++ {
+				if err := m.WriteBlock([]HostEntry{{IP: "10.0.0.1", Hostname: "svc.local"}}); err != nil {
+					t.Fatal(err)
+				}
+				if err := m.WriteBlock(nil); err != nil {
+					t.Fatal(err)
+				}
+				got := readFile(t, path)
+				if !strings.HasPrefix(got, static) {
+					t.Fatalf("static content changed after cycle %d: %q", cycle, got)
+				}
+				if cycle == 0 {
+					afterFirst = got
+				} else if got != afterFirst {
+					t.Fatalf("whitespace grew after cycle %d: first %q, now %q", cycle, afterFirst, got)
+				}
+			}
+		})
+	}
+}
+
 func TestWriteBlock_SharedIPSortedByHostname(t *testing.T) {
 	m, path := newManager(t, "")
 
@@ -285,66 +327,76 @@ func TestWriteBlock_SharedIPSortedByHostname(t *testing.T) {
 
 // --- malformed marker tests ---
 
-// writeAndCheckStable writes entries twice on top of the given initial content
-// and asserts the result is well-formed and identical after both writes (i.e.
-// the write converged and does not grow the file on subsequent reconciles).
-func writeAndCheckStable(t *testing.T, initial string) string {
+// Malformed boundaries must not cause the controller to discard content that
+// may belong to someone else or treat stale records as an empty block.
+func checkMalformedBlockIsUntouched(t *testing.T, initial string) {
 	t.Helper()
 	m, path := newManager(t, initial)
 	entries := []HostEntry{{IP: "10.0.0.1", Hostname: "app.local"}}
 
-	if err := m.WriteBlock(entries); err != nil {
-		t.Fatal(err)
+	if _, err := m.HashCurrentBlock(); !errors.Is(err, ErrMalformedBlock) {
+		t.Fatalf("hash: expected malformed block, got %v", err)
 	}
-	first := readFile(t, path)
-
-	if got := strings.Count(first, beginMarker); got != 1 {
-		t.Errorf("expected exactly 1 begin marker, got %d:\n%s", got, first)
+	if entries, err := m.ReadBlock(); !errors.Is(err, ErrMalformedBlock) {
+		t.Fatalf("read: expected malformed block, got entries %v, error %v", entries, err)
 	}
-	if got := strings.Count(first, endMarker); got != 1 {
-		t.Errorf("expected exactly 1 end marker, got %d:\n%s", got, first)
+	for _, desired := range [][]HostEntry{entries, nil} {
+		if err := m.WriteBlock(desired); !errors.Is(err, ErrMalformedBlock) {
+			t.Fatalf("write: expected malformed block, got %v", err)
+		}
+		if got := readFile(t, path); got != initial {
+			t.Fatalf("malformed file was changed:\n%s", got)
+		}
 	}
-
-	// The written block must now hash-match desired state, so a second
-	// reconcile writes identical content instead of appending again.
-	got, err := m.HashCurrentBlock()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != m.HashBlock(entries) {
-		t.Error("current block hash does not match desired hash after write")
-	}
-	if err := m.WriteBlock(entries); err != nil {
-		t.Fatal(err)
-	}
-	if second := readFile(t, path); first != second {
-		t.Errorf("file changed on second write (unstable):\nfirst:\n%s\nsecond:\n%s", first, second)
-	}
-	return first
 }
 
 func TestWriteBlock_MalformedEndBeforeBegin(t *testing.T) {
-	content := writeAndCheckStable(t,
+	checkMalformedBlockIsUntouched(t,
 		"1.2.3.4 static.local\n"+endMarker+"\norphan line\n"+beginMarker+"\n")
-	if !strings.Contains(content, "1.2.3.4 static.local") {
-		t.Errorf("content before the first marker should be preserved:\n%s", content)
-	}
 }
 
 func TestWriteBlock_MalformedBeginWithoutEnd(t *testing.T) {
 	// Simulates a truncated write: BEGIN marker plus partial block, no END.
-	content := writeAndCheckStable(t,
-		"1.2.3.4 static.local\n"+beginMarker+"\n10.0.0.9 stale.local\n")
-	if !strings.Contains(content, "1.2.3.4 static.local") {
-		t.Errorf("content before the first marker should be preserved:\n%s", content)
-	}
-	if strings.Contains(content, "stale.local") {
-		t.Errorf("truncated block content should be dropped:\n%s", content)
-	}
+	checkMalformedBlockIsUntouched(t,
+		"1.2.3.4 static.local\n"+beginMarker+"\n10.0.0.9 stale.local\n5.6.7.8 static-after.local\n")
 }
 
 func TestWriteBlock_MalformedEndWithoutBegin(t *testing.T) {
-	writeAndCheckStable(t, "1.2.3.4 static.local\n"+endMarker+"\n")
+	checkMalformedBlockIsUntouched(t, "1.2.3.4 static.local\n"+endMarker+"\n")
+}
+
+func TestWriteBlock_DuplicateMarkersAreRejected(t *testing.T) {
+	checkMalformedBlockIsUntouched(t, beginMarker+"\n"+endMarker+"\n"+beginMarker+"\n"+endMarker+"\n")
+}
+
+func TestWriteBlock_PreservesInodeAndStaticContent(t *testing.T) {
+	before := "# static prefix\n1.2.3.4 static.local\n\n"
+	after := "\n\n# static suffix\n5.6.7.8 other.local\n"
+	m, path := newManager(t, before+beginMarker+"\n10.0.0.9 old.local\n"+endMarker+after)
+	originalInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, desired := range [][]HostEntry{
+		{{IP: "10.0.0.1", Hostname: "new.local"}, {IP: "10.0.0.2", Hostname: "second.local"}},
+		{{IP: "10.0.0.1", Hostname: "new.local"}},
+		nil,
+	} {
+		if err := m.WriteBlock(desired); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !os.SameFile(originalInfo, info) {
+			t.Fatal("hosts file inode was replaced")
+		}
+		got := readFile(t, path)
+		if !strings.HasPrefix(got, before) || !strings.HasSuffix(got, after) {
+			t.Fatalf("static content changed:\n%s", got)
+		}
+	}
 }
 
 func TestHashBlock_Deterministic(t *testing.T) {

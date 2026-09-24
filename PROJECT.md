@@ -89,7 +89,9 @@ Own only a marked block, never the full file:
 Write sequence:
 1. Read current file
 2. Replace content between markers (or append block if markers absent)
-3. Write via `os.WriteFile` with 0644 permissions (readable by avahi user)
+3. Stage the updated content in memory, then overwrite and truncate the existing file inode (created with 0644 permissions if absent). Replacing the inode would break the single-file hostPath mount.
+
+Malformed or ambiguous block markers cause reconciliation to fail without changing the file. Ordinary write errors trigger a best-effort restore of the prior content. A sudden process or host failure during an in-place write can still leave partial content; atomic replacement is incompatible with the current single-file mount.
 
 Entries inside the block are sorted by IP, then hostname (deterministic even when Services share an IP). Skip write + reload entirely if content hash matches current block — avoids unnecessary reloads on pod restarts when state is already correct.
 

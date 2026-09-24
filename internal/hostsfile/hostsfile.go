@@ -6,8 +6,9 @@ package hostsfile
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"log/slog"
+	"io"
 	"os"
 	"sort"
 	"strings"
@@ -17,6 +18,10 @@ const (
 	beginMarker = "### BEGIN k8s-avahi-controller ###"
 	endMarker   = "### END k8s-avahi-controller ###"
 )
+
+// ErrMalformedBlock means the managed block cannot be identified safely.
+// Refuse to write rather than risk removing unrelated host entries.
+var ErrMalformedBlock = errors.New("malformed managed-block markers")
 
 // HostEntry represents one line in the managed block.
 type HostEntry struct {
@@ -30,7 +35,8 @@ type Manager struct {
 }
 
 // ReadBlock reads the current file and returns the entries found inside the managed block.
-// Returns an empty slice if the file does not exist or contains no markers.
+// Returns an empty slice if the file does not exist or contains no markers,
+// and an error if the markers are malformed or ambiguous.
 func (m *Manager) ReadBlock() ([]HostEntry, error) {
 	data, err := os.ReadFile(m.FilePath)
 	if err != nil {
@@ -40,20 +46,20 @@ func (m *Manager) ReadBlock() ([]HostEntry, error) {
 		return nil, fmt.Errorf("read hosts file: %w", err)
 	}
 
-	lines := strings.Split(string(data), "\n")
-	inBlock := false
+	content := string(data)
+	beginIdx, endIdx, err := blockBounds(content)
+	if err != nil {
+		return nil, err
+	}
+	if beginIdx == -1 {
+		return nil, nil
+	}
+	lines := strings.Split(content[beginIdx+len(beginMarker):endIdx], "\n")
 	var entries []HostEntry
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == beginMarker {
-			inBlock = true
-			continue
-		}
-		if line == endMarker {
-			break
-		}
-		if !inBlock || line == "" || strings.HasPrefix(line, "#") {
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
@@ -69,79 +75,119 @@ func (m *Manager) ReadBlock() ([]HostEntry, error) {
 // WriteBlock replaces the managed block in the hosts file with the given entries.
 // If entries is nil or empty, the block (including markers) is removed entirely.
 // Static content outside the markers is preserved.
-// The file is written with 0644 permissions so avahi-daemon (avahi user) can read it.
+// A new file is created with 0644 permissions; an existing file keeps its mode.
 func (m *Manager) WriteBlock(entries []HostEntry) error {
-	existing := ""
-	data, err := os.ReadFile(m.FilePath)
-	if err != nil && !os.IsNotExist(err) {
+	file, err := os.OpenFile(m.FilePath, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return fmt.Errorf("open hosts file: %w", err)
+	}
+	defer file.Close()
+
+	old, err := io.ReadAll(file)
+	if err != nil {
 		return fmt.Errorf("read hosts file: %w", err)
 	}
-	if err == nil {
-		existing = string(data)
+	updated, err := replaceBlock(string(old), entries)
+	if err != nil {
+		return err
+	}
+	if updated == string(old) {
+		return nil
 	}
 
-	if err := os.WriteFile(m.FilePath, []byte(replaceBlock(existing, entries)), 0644); err != nil {
-		return fmt.Errorf("write hosts file: %w", err)
+	// The hosts file is a single-file hostPath mount. Replacing it with a
+	// renamed temporary file would leave the container bound to the old inode.
+	// Stage the complete contents in memory, then overwrite that same inode.
+	// In particular, do not truncate before the new contents are written.
+	writeErr := writeAllAt(file, []byte(updated))
+	if writeErr == nil {
+		writeErr = file.Truncate(int64(len(updated)))
+	}
+	if writeErr == nil {
+		writeErr = file.Sync()
+	}
+	if writeErr != nil {
+		// Restore the previous contents when an ordinary write fails. A sudden
+		// process or host failure during a write can still leave partial data;
+		// the same-inode mount precludes atomic rename-based replacement.
+		rollbackErr := writeAllAt(file, old)
+		if rollbackErr == nil {
+			rollbackErr = file.Truncate(int64(len(old)))
+		}
+		if rollbackErr == nil {
+			rollbackErr = file.Sync()
+		}
+		if rollbackErr != nil {
+			return fmt.Errorf("write hosts file: %w; restore previous contents: %v", writeErr, rollbackErr)
+		}
+		return fmt.Errorf("write hosts file: %w", writeErr)
+	}
+	return nil
+}
+
+func writeAllAt(file *os.File, data []byte) error {
+	for offset := 0; offset < len(data); {
+		n, err := file.WriteAt(data[offset:], int64(offset))
+		offset += n
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
 	}
 	return nil
 }
 
 // replaceBlock replaces (or appends) the managed block in the file content string.
-func replaceBlock(existing string, entries []HostEntry) string {
+func replaceBlock(existing string, entries []HostEntry) (string, error) {
 	block := renderBlock(entries)
-
-	beginIdx := strings.Index(existing, beginMarker)
-	endIdx := strings.Index(existing, endMarker)
-
-	// Malformed markers — one missing, or END before BEGIN — come from a
-	// truncated write or a hand edit. Drop everything from the first marker
-	// onward and rebuild: appending a fresh block alongside broken markers
-	// would keep the hash mismatched and grow the file on every reconcile.
-	wellFormed := beginIdx != -1 && endIdx != -1 && beginIdx < endIdx
-	if !wellFormed && (beginIdx != -1 || endIdx != -1) {
-		first := beginIdx
-		if first == -1 || (endIdx != -1 && endIdx < first) {
-			first = endIdx
-		}
-		slog.Warn("hosts file has malformed managed-block markers, rebuilding block")
-		existing = existing[:first]
-		beginIdx, endIdx = -1, -1
+	beginIdx, endIdx, err := blockBounds(existing)
+	if err != nil {
+		return "", err
 	}
-
-	if beginIdx != -1 && endIdx != -1 && beginIdx < endIdx {
-		before := strings.TrimRight(existing[:beginIdx], "\n")
-		after := strings.TrimLeft(existing[endIdx+len(endMarker):], "\n")
-
-		if block == "" {
-			if before == "" {
-				return strings.TrimLeft(after, "\n")
-			}
-			if after == "" {
-				return before + "\n"
-			}
-			return before + "\n" + after + "\n"
+	if beginIdx != -1 {
+		after := existing[endIdx+len(endMarker):]
+		if block == "" && strings.Trim(after, "\n") == "" {
+			// The controller appends one newline after its block. Remove that
+			// delimiter when the block is at EOF, keeping any earlier static
+			// whitespace and avoiding growth on repeated add/remove cycles.
+			after = strings.TrimPrefix(after, "\n")
 		}
-
-		parts := []string{}
-		if before != "" {
-			parts = append(parts, before)
-		}
-		parts = append(parts, block)
-		if after != "" {
-			parts = append(parts, strings.TrimLeft(after, "\n"))
-		}
-		return strings.Join(parts, "\n\n") + "\n"
+		return existing[:beginIdx] + block + after, nil
 	}
 
 	// No markers found — append block.
 	if block == "" {
-		return existing
+		return existing, nil
 	}
-	trimmed := strings.TrimRight(existing, "\n")
-	if trimmed == "" {
-		return block + "\n"
+	if existing == "" {
+		return block + "\n", nil
 	}
-	return trimmed + "\n\n" + block + "\n"
+	if strings.HasSuffix(existing, "\n\n") {
+		return existing + block + "\n", nil
+	}
+	if strings.HasSuffix(existing, "\n") {
+		return existing + "\n" + block + "\n", nil
+	}
+	return existing + "\n\n" + block + "\n", nil
+}
+
+// blockBounds returns the first byte of BEGIN and END for a single valid
+// block, or -1/-1 when no block exists. Ambiguous markers require a manual
+// repair because the controller cannot distinguish managed from static text.
+func blockBounds(content string) (int, int, error) {
+	beginCount := strings.Count(content, beginMarker)
+	endCount := strings.Count(content, endMarker)
+	if beginCount == 0 && endCount == 0 {
+		return -1, -1, nil
+	}
+	beginIdx := strings.Index(content, beginMarker)
+	endIdx := strings.Index(content, endMarker)
+	if beginCount != 1 || endCount != 1 || beginIdx >= endIdx {
+		return -1, -1, ErrMalformedBlock
+	}
+	return beginIdx, endIdx, nil
 }
 
 // renderBlock formats entries as the managed block string, sorted by IP then
@@ -190,9 +236,11 @@ func (m *Manager) HashCurrentBlock() (string, error) {
 	}
 
 	content := string(data)
-	beginIdx := strings.Index(content, beginMarker)
-	endIdx := strings.Index(content, endMarker)
-	if beginIdx == -1 || endIdx == -1 || beginIdx >= endIdx {
+	beginIdx, endIdx, err := blockBounds(content)
+	if err != nil {
+		return "", err
+	}
+	if beginIdx == -1 {
 		return m.HashBlock(nil), nil
 	}
 
