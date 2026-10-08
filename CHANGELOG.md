@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4](https://github.com/mm503/avahi-controller/compare/v0.6.3...v0.6.4) (2026-10-08)
+
+
+### Bug Fixes
+
+* **deps:** update go toolchain directive to v1.27.2 ([6c914b6](https://github.com/mm503/avahi-controller/commit/6c914b6c3a74a922fbf8a723c3302f3daae4263a))
+* **deps:** update golang docker tag to v1.27.2 ([977b591](https://github.com/mm503/avahi-controller/commit/977b5913896ff6d2d5f974e9492216167b0075ee))
+
 ## [0.6.3](https://github.com/mm503/avahi-controller/compare/v0.6.2...v0.6.3) (2026-09-24)
 
 
