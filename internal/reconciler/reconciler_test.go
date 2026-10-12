@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -706,5 +707,31 @@ func TestReconcile_CancelledDoesNotWrite(t *testing.T) {
 	entries, err := mgr.ReadBlock()
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("wrote entries: %v, %v", entries, err)
+	}
+}
+
+func TestReconcile_StaticOnlyFileNoServicesNoReload(t *testing.T) {
+	reload := &fakeReloader{}
+	r, mgr := newReconciler(t, nil, reload)
+	original := []byte("127.0.0.1 localhost\n")
+	if err := os.WriteFile(mgr.FilePath, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	// One startup reload repairs a possible crash between a previous write and reload.
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		reload.called = false
+		if err := r.Reconcile(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if reload.called {
+			t.Fatal("unchanged static file reloaded after startup")
+		}
+	}
+	data, err := os.ReadFile(mgr.FilePath)
+	if err != nil || string(data) != string(original) {
+		t.Fatalf("static file changed: %q %v", data, err)
 	}
 }
