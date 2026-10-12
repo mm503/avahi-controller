@@ -4,9 +4,9 @@
   "packages": {
     ".": {
       "extra-files": [
-        "charts/avahi-controller/Chart.yaml",
-        "charts/avahi-controller/values.yaml",
-        "deploy/deployment.yaml"
+        { "type": "generic", "path": "charts/avahi-controller/Chart.yaml" },
+        { "type": "generic", "path": "charts/avahi-controller/values.yaml" },
+        { "type": "generic", "path": "deploy/deployment.yaml" }
       ]
     }
   }
