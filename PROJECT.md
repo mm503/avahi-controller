@@ -1,215 +1,53 @@
-## Avahi Controller
+# Avahi Controller architecture
 
-### Architecture
+A single Deployment writes a managed block in one node's `/etc/avahi/hosts`.
+Services are watched cluster-wide through client-go informers. All events collapse
+to one queue key; one worker rebuilds desired state. There is no leader election
+or multi-writer coordination. The node running avahi-daemon must match the configured
+nodeSelector. See README.md and chart values for deployment settings and flags.
 
-Single `Deployment` (replicas: 1) pinned to a designated node via `nodeSelector`. That node runs avahi-daemon and owns all mDNS announcements for all LoadBalancer IPs. The controller watches Services cluster-wide and manages a block in that node's `/etc/avahi/hosts`.
+A qualifying Service has type LoadBalancer and a nonempty `avahi.homelab/hostname`
+annotation. The scan chooses its first valid, nonempty ingress IP and canonicalizes
+it. Services without a valid IP cause a retry but do not block other ready entries.
+After checking the IP, the scan validates the hostname, warns for missing `.local`,
+and resolves conflicts to the oldest ready Service by creation timestamp, then
+namespace/name. Names are case-insensitive. Invalid names and conflicts emit a
+warning once while the same problem persists. Pending-IP warnings count passes,
+not elapsed time.
 
-No DaemonSet. No leader election. No multi-writer coordination.
+After cache sync (bounded to one minute), startup logs the existing records and
+reconciles. The desired block is sorted by IP and hostname, then hashed. An unchanged
+hash skips the write. With reload enabled, startup reloads once even if the file
+matches, recovering a possible crash between a previous write and reload.
 
----
+The controller preserves static bytes outside whole-line BEGIN/END markers. It
+stages changes in memory, overwrites the same inode, truncates, and syncs. Ordinary
+write failures attempt rollback. A process or host crash can still leave a partial
+write: atomic rename is incompatible with the single-file hostPath mount.
+Malformed markers stop backoff retries and emit a pod Warning Event; a manual file
+repair, Service event, or resync triggers another pass. File metadata is checked
+every second. An unlinked mounted inode is rejected and the controller exits;
+recreate the pod after a rename-based host edit to bind the replacement file.
 
-### Annotation Design
+Reload is opt-in. Helm `reload.enabled=true` adds the flag, system D-Bus socket and
+address together. The default chart and raw deployment do not expose the socket.
+A root D-Bus client can start root processes on the host, so enable reload only for
+trusted images. `ReloadUnit(unit, "replace")` is bounded to ten seconds; its reply
+means the job was accepted, not that avahi finished reloading. Without reload the
+controller cannot detect whether avahi-daemon is running.
 
-```yaml
-annotations:
-  avahi.homelab/hostname: "myapp.local"
-```
+The default image is `0.6.4`, which lacks health endpoints. The chart leaves
+probes disabled unless `healthProbes.enabled=true`; use that setting only with
+an image containing the updated controller. The raw manifest omits probes too.
+Readiness/liveness HTTP endpoints on port 8080 use the last completed reconciliation
+(including passes with pending IPs). They fail after `resync-period + 1m` without
+success, except malformed markers fail readiness immediately while liveness stays
+successful to allow manual repair without restarting. Three consecutive unexpected failures emit a Warning Event on the pod.
+Shutdown stops the queue and waits for in-flight work before optional cleanup;
+cleanup reloads use a fresh bounded context.
 
-- Only acts on `type: LoadBalancer` Services
-- Only writes entry when `status.loadBalancer.ingress[0].ip` is populated
-- Ignores Services without the annotation
-- One hostname per Service; no aliases support
-
----
-
-### Node Designation
-
-Label the target node:
-
-```bash
-kubectl label node <nodename> avahi-controller=true
-```
-
-```yaml
-# Deployment nodeSelector
-nodeSelector:
-  avahi-controller: "true"
-```
-
-avahi-daemon must be installed and running on that node. The controller does not manage avahi-daemon itself.
-
----
-
-### Reconciliation Logic
-
-```
-Watch: Services (all namespaces)
-
-All events (Add/Update/Delete) collapse to a single sentinel queue key.
-The queue uses exponential backoff (100ms–30s) for retries.
-
-On any event:
-  - Rebuild desired state from ALL annotated LoadBalancer Services
-  - Hash desired block content
-  - Compare to current block in file
-  - If changed: write file, optionally reload avahi (--reload flag)
-
-Per-Service filtering during scan:
-  - type: LoadBalancer? No → skip
-  - Has annotation? No → skip
-  - Annotation is a valid RFC-1123 hostname? No → skip + Warning Event
-  - Has .status.loadBalancer.ingress[0].ip? No → requeue with backoff
-
-On startup:
-  - Full reconcile of all Services after cache sync
-  - Rewrites file — handles node reboot or manual edits to managed block
-
-Shutdown:
-  - if --cleanup-on-exit, removes managed block from hosts file
-```
-
-Desired state is always rebuilt from the full Service list, not incrementally patched. Keeps the logic simple and self-healing.
-
----
-
-### File Management
-
-Own only a marked block, never the full file:
-
-```
-# statically managed entries above this line are untouched
-
-### BEGIN k8s-avahi-controller ###
-# Managed by avahi-controller. Do not edit between these markers.
-192.168.1.100 myapp.local
-192.168.1.101 otherapp.local
-### END k8s-avahi-controller ###
-```
-
-Write sequence:
-1. Read current file
-2. Replace content between markers (or append block if markers absent)
-3. Stage the updated content in memory, then overwrite and truncate the existing file inode (created with 0644 permissions if absent). Replacing the inode would break the single-file hostPath mount.
-
-Malformed or ambiguous block markers cause reconciliation to fail without changing the file. Ordinary write errors trigger a best-effort restore of the prior content. A sudden process or host failure during an in-place write can still leave partial content; atomic replacement is incompatible with the current single-file mount.
-
-Entries inside the block are sorted by IP, then hostname (deterministic even when Services share an IP). Skip write + reload entirely if content hash matches current block — avoids unnecessary reloads on pod restarts when state is already correct.
-
----
-
-### Avahi Reload
-
-Reload is **opt-in** via `--reload` flag. By default avahi-daemon watches `/etc/avahi/hosts` itself and picks up changes without any signal.
-
-When `--reload` is set, the controller signals avahi-daemon via **systemd on the system D-Bus**:
-
-```
-org.freedesktop.systemd1.Manager.ReloadUnit(<service>, "replace")
-```
-
-This is equivalent to `systemctl reload <service>` and sends SIGHUP to avahi-daemon, causing it to re-read its hosts file.
-
-The systemd service name defaults to `avahi-daemon.service` and can be overridden with `--avahi-service`.
-
-The system D-Bus socket must be mounted into the pod when `--reload` is used.
-
----
-
-### CLI Flags
-
-| Flag | Default | Description |
-|---|---|---|
-| `--hosts-file` | `/etc/avahi/hosts` | Path to the avahi hosts file |
-| `--kubeconfig` | `` | Path to kubeconfig (empty = in-cluster) |
-| `--cleanup-on-exit` | `false` | Remove managed block on shutdown |
-| `--avahi-service` | `avahi-daemon.service` | systemd unit name for avahi-daemon |
-| `--resync-period` | `10m` | Informer resync period |
-| `--verbose` | `false` | Log reconcile details (qualifying services, scan summary) |
-| `--debug` | `false` | Log everything including client-go internals |
-| `--reload` | `false` | Signal avahi-daemon via systemd after writing hosts file |
-
----
-
-### Deployment Spec (Key Parts)
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: avahi-controller
-  namespace: kube-system
-spec:
-  replicas: 1
-  template:
-    spec:
-      serviceAccountName: avahi-controller
-      nodeSelector:
-        avahi-controller: "true"
-      tolerations:
-        - operator: Exists        # in case the designated node has taints
-      volumes:
-        - name: avahi-hosts
-          hostPath:
-            path: /etc/avahi/hosts
-            type: FileOrCreate
-        - name: dbus-socket       # only needed when --reload is set
-          hostPath:
-            path: /run/dbus/system_bus_socket
-            type: Socket
-      containers:
-        - name: controller
-          image: your-registry/avahi-controller:latest
-          securityContext:
-            capabilities:
-              add: ["DAC_OVERRIDE"]   # file write, no full privileged needed
-          volumeMounts:
-            - name: avahi-hosts
-              mountPath: /etc/avahi/hosts
-            - name: dbus-socket
-              mountPath: /run/dbus/system_bus_socket
-          env:
-            - name: NODE_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: spec.nodeName
-```
-
----
-
-### RBAC
-
-```yaml
-rules:
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
-```
-
-`ClusterRole` + `ClusterRoleBinding` — Services are watched across all namespaces.
-
----
-
-### Edge Cases
-
-| Scenario | Handling |
-|---|---|
-| MetalLB reassigns IP | Update event → reconcile rewrites entry |
-| Service deleted | Delete event → entry removed |
-| Node reboots, file wiped | Pod reschedules to same node (pinned), startup reconcile rewrites |
-| Two Services claim same hostname | Log error, emit k8s Warning Event, skip loser — lowest namespace/name wins deterministically |
-| Annotation added to existing Service | Update event → treated as new entry |
-| Annotation is not a valid hostname | Log error, emit k8s Warning Event, skip — value is never written to the file |
-| Annotation removed | Update event → entry removed, same as delete |
-| avahi-daemon not running | Log error, retry with exponential backoff |
-| Pod restarts, file already correct | Hash match → no write, no reload |
-
----
-
-### Implementation Stack
-
-- `k8s.io/client-go` — SharedInformerFactory, rate-limiting work queue, no controller-runtime needed
-- `github.com/godbus/dbus/v5` — systemd D-Bus for optional avahi reload
-- Raw informers are sufficient — ~400 lines of Go, single binary, minimal image
+The pod runs as UID 0 to write the root-owned hosts file, drops all capabilities,
+disallows privilege escalation, uses a read-only root filesystem and RuntimeDefault
+seccomp. RBAC permits get/list/watch Services and create/patch Events. Images use
+a digest-pinned distroless runtime; CI executes the packaged binary and runs race,
+vet, module-tidy and vulnerability checks. Version reporting uses `-X main.version`.

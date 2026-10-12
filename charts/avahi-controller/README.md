@@ -66,17 +66,30 @@ The controller owns only a marked block and never touches the rest of the file:
 
 | Key | Default | Description |
 |---|---|---|
+| `replicaCount` | `1` | At most one writer; `0` disables the deployment |
 | `image.repository` | `ghcr.io/mm503/avahi-controller` | Container image repository |
-| `image.tag` | *(chart appVersion)* | Image tag override |
+| `image.tag` | `0.6.4` | Pinned release tag; empty falls back to chart appVersion |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `args` | `[--cleanup-on-exit=false]` | Controller flags passed to the binary |
-| `nodeSelector` | `{avahi-controller: "true"}` | Node selector — must match a labeled node |
+| `imagePullSecrets` | `[]` | Private registry credentials |
+| `nameOverride`, `fullnameOverride` | `""` | Resource naming overrides |
+| `healthProbes.enabled` | `false` | Enable HTTP probes with an image supporting `/healthz` and `/readyz`; `0.6.4` lacks these endpoints |
+| `reload.enabled` | `false` | Mount privileged host D-Bus access and enable systemd reload |
+| `args` | `[--cleanup-on-exit=false]` | Additional flags; configure reload with `reload.enabled` |
+| `env` | `NODE_NAME` from node field | Additional environment variables; bus address added only for reload |
+| `nodeSelector` | `{avahi-controller: "true"}` | Labels of the node running avahi |
 | `tolerations` | `[{operator: Exists}]` | Tolerates any taint on the designated node |
+| `affinity` | `{}` | Pod affinity rules |
 | `resources.requests` | `cpu: 10m, memory: 32Mi` | Resource requests |
 | `resources.limits` | `cpu: 50m, memory: 64Mi` | Resource limits |
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
+| `serviceAccount.name` | `""` | Generated name when create is true |
+| `serviceAccount.annotations` | `{}` | ServiceAccount annotations |
 | `rbac.create` | `true` | Create ClusterRole and ClusterRoleBinding |
-| `terminationGracePeriodSeconds` | `30` | Grace period for pod shutdown |
+| `podAnnotations`, `podLabels` | `{}` | Pod metadata |
+| `podSecurityContext` | `{}` | Pod security settings |
+| `securityContext` | root, drop ALL, RuntimeDefault seccomp | Writes root-owned file; no privilege escalation; read-only rootfs |
+| `volumes`, `volumeMounts` | avahi hosts file hostPath | Hosts file mounts; reload adds D-Bus separately |
+| `terminationGracePeriodSeconds` | `30` | Allows in-flight writes and optional cleanup to finish |
 
 Release images are published to both `ghcr.io/mm503/avahi-controller` and
 `docker.io/mm404/avahi-controller`. The chart defaults to GHCR; set
@@ -91,18 +104,20 @@ Release images are published to both `ghcr.io/mm503/avahi-controller` and
 | `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on controller shutdown |
 | `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write |
 | `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
-| `--resync-period` | `10m` | Informer resync interval |
+| `--resync-period` | `10m` | Positive informer resync interval |
 | `--verbose` | `false` | Verbose logging |
 | `--debug` | `false` | Debug logging (very noisy) |
+| `--version` | `false` | Print build version and exit |
 
-Enable `--reload` only if your setup requires an explicit D-Bus reload signal. When enabled, the controller calls `systemctl reload <avahi-service>` via the system D-Bus. Requires the D-Bus socket mounted at `/run/dbus/system_bus_socket`.
+Enable `--reload` only if your setup requires an explicit D-Bus reload signal. When enabled, the controller calls `systemctl reload <avahi-service>` via the system D-Bus. Set `reload.enabled=true` to mount the host system bus. This grants the root container access to privileged host systemd operations, including starting root processes on the node.
 
 Example — enable reload with a custom avahi service unit:
 
 ```sh
 helm install avahi-controller avahi-controller/avahi-controller \
   --namespace kube-system \
-  --set args="{--reload=true,--avahi-service=avahi.service,--verbose}"
+  --set reload.enabled=true \
+  --set args="{--avahi-service=avahi.service,--verbose}"
 ```
 
 ## Upgrade
@@ -116,3 +131,5 @@ helm upgrade avahi-controller avahi-controller/avahi-controller \
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Probes default to disabled because the pinned `0.6.4` image lacks health endpoints. Set `healthProbes.enabled=true` with an image built from the updated controller code. Readiness and liveness use the last successful reconcile; malformed markers immediately fail readiness while liveness allows the controller to wait for repair. Cache sync has a one-minute deadline. Pending IPs do not hide ready records. The oldest ready Service wins a name conflict, with namespace/name breaking timestamp ties.

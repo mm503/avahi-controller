@@ -194,4 +194,3 @@ jobs:
           gh pr create --base main --head "$BRANCH" --title "chore(chart): update to ${{ needs.release-please.outputs.tag_name }}" --body-file "$RUNNER_TEMP/chart-pr-body.md"
           # GITHUB_TOKEN pushes do not trigger CI; workflow_dispatch does.
           gh workflow run ci.yml --ref "$BRANCH"
-

@@ -3,14 +3,16 @@ avahi-controller is deployed.
 To verify it is running:
   kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "avahi-controller.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
 
----------------------------------------------------------------------------
-IMPORTANT: Node label required
----------------------------------------------------------------------------
-The pod will remain Pending until a node is labeled to match the
-configured nodeSelector. Label the node where avahi-daemon is running:
-
-  kubectl label node <node-name> avahi-controller=true
-
-This is intentional — only one node should manage the avahi hosts file,
-and it must be the node where avahi-daemon is installed and running.
----------------------------------------------------------------------------
+{{ if .Values.nodeSelector -}}
+Label the node running avahi-daemon to match your configured nodeSelector:
+{{ range $key, $value := .Values.nodeSelector }}
+  kubectl label node <node-name> {{ printf "%s=%s" $key $value | quote }}
+{{ end }}
+The pod stays Pending until a node matches these labels.
+{{ else -}}
+No nodeSelector is configured. Ensure the pod runs on the node with avahi-daemon.
+{{ end }}
+Only one controller may manage the hosts file.
+{{ if .Values.reload.enabled }}
+Reload is enabled. The root container can access privileged host systemd operations.
+{{ end }}

@@ -44,15 +44,22 @@ The controller owns only a marked block and never touches the rest of the file:
 | `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on controller shutdown |
 | `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write (modern avahi watches hosts files for changes)|
 | `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
-| `--resync-period` | `10m` | Informer resync interval |
+| `--resync-period` | `10m` | Positive informer resync interval; zero and negative values are rejected |
 | `--verbose` | `false` | Verbose logging: per-service reconcile details and scan summary |
 | `--debug` | `false` | Debug logging: same as verbose plus client-go internals (very noisy) |
+| `--version` | `false` | Print build version and exit |
 
 ## Avahi reload
 
 By default (`--reload=false`) avahi-daemon notices file changes on its own — no signalling needed. Enable `--reload` only if your setup requires an explicit reload. When enabled, the controller calls `systemctl reload <avahi-service>` via the system D-Bus, which sends SIGHUP to avahi-daemon.
 
-Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_socket`.
+The default install does not mount the host D-Bus socket. Helm adds the socket,
+address environment variable, and flag together when `reload.enabled=true`.
+This grants the root container access to privileged host systemd operations,
+including starting root processes on the node. Enable it only for trusted images.
+For raw manifests, add `--reload`, a `dbus-socket` hostPath volume of type `Socket`
+for `/run/dbus/system_bus_socket`, its read-only mount at the same path, and
+`DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket` together.
 
 ## Edge cases
 
@@ -64,9 +71,9 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 | Two Services claim same hostname | Oldest ready Service wins (creation timestamp, then namespace/name to break ties); second is skipped with a log error and Kubernetes Event |
 | Annotation added to existing Service | Treated as new entry |
 | Annotation removed | Entry removed, same as delete |
-| Pod restarts, file already correct | Hash match → no write, no reload |
-| Managed block markers are incomplete, reversed, or duplicated | Controller logs a reconciliation error and leaves the file untouched; repair the markers manually so static entries cannot be mistaken for managed content |
-| **Manual edit** to hosts file using a rename-based editor (nano, vim, etc.) | Editor creates a new file inode; the pod's hostPath bind mount (which is a single-file mount) still points to the old inode. Subsequent controller writes silently go to the old inode and are invisible to the host. **Workaround**: restart the pod to re-bind to the current inode. **This is a known tradeoff** of mounting a single file via hostPath; mounting the parent directory instead would fix it but widens the volume scope. |
+| Pod restarts, file already correct | No write; with reload enabled, reload once to recover an interrupted previous reload |
+| Managed block markers are incomplete, reversed, or duplicated | Controller emits a Warning Event and leaves the file untouched; no backoff retry. Manual file repairs and subsequent Service events trigger another pass |
+| **Manual edit** to hosts file using a rename-based editor (nano, vim, etc.) | The single-file hostPath mount still points at the old inode. The controller detects an unlinked inode and exits with an error. Recreate the pod to bind the replacement file. Prefer in-place edits. |
 
 ## Requirements
 
@@ -107,16 +114,30 @@ helm install avahi-controller ./charts/avahi-controller \
 
 | Key | Default | Description |
 |---|---|---|
+| `replicaCount` | `1` | At most one writer; `0` disables the deployment |
 | `image.repository` | `ghcr.io/mm503/avahi-controller` | Container image repository |
-| `image.tag` | *(chart appVersion)* | Image tag override |
+| `image.tag` | `0.6.4` | Pinned release tag; empty falls back to chart appVersion |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `args` | `[--cleanup-on-exit=false, --verbose]` | Controller flags |
-| `nodeSelector` | `{avahi-controller: "true"}` | Node selector for scheduling |
+| `imagePullSecrets` | `[]` | Private registry credentials |
+| `nameOverride`, `fullnameOverride` | `""` | Resource naming overrides |
+| `healthProbes.enabled` | `false` | Enable HTTP probes with an image supporting `/healthz` and `/readyz`; `0.6.4` lacks these endpoints |
+| `reload.enabled` | `false` | Mount privileged host D-Bus access and enable systemd reload |
+| `args` | `[--cleanup-on-exit=false]` | Additional flags; configure reload with `reload.enabled` |
+| `env` | `NODE_NAME` from node field | Additional environment variables; bus address added only for reload |
+| `nodeSelector` | `{avahi-controller: "true"}` | Labels of the node running avahi |
 | `tolerations` | `[{operator: Exists}]` | Tolerates any taint on the designated node |
+| `affinity` | `{}` | Pod affinity rules |
 | `resources.requests` | `cpu: 10m, memory: 32Mi` | Resource requests |
 | `resources.limits` | `cpu: 50m, memory: 64Mi` | Resource limits |
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
+| `serviceAccount.name` | `""` | Generated name when create is true |
+| `serviceAccount.annotations` | `{}` | ServiceAccount annotations |
 | `rbac.create` | `true` | Create ClusterRole and ClusterRoleBinding |
+| `podAnnotations`, `podLabels` | `{}` | Pod metadata |
+| `podSecurityContext` | `{}` | Pod security settings |
+| `securityContext` | root, drop ALL, RuntimeDefault seccomp | Writes root-owned file; no privilege escalation; read-only rootfs |
+| `volumes`, `volumeMounts` | avahi hosts file hostPath | Hosts file mounts; reload adds D-Bus separately |
+| `terminationGracePeriodSeconds` | `30` | Allows in-flight writes and optional cleanup to finish |
 
 The chart defaults to GHCR. To pull from Docker Hub instead, set
 `--set image.repository=mm404/avahi-controller`.
@@ -126,7 +147,8 @@ Example — enable `--reload` and point at a custom avahi service unit:
 ```sh
 helm install avahi-controller ./charts/avahi-controller \
   --namespace kube-system \
-  --set args="{--reload=true,--avahi-service=avahi.service,--verbose}"
+  --set reload.enabled=true \
+  --set args="{--avahi-service=avahi.service,--verbose}"
 ```
 
 #### Upgrade
@@ -159,12 +181,21 @@ Builds from feature branches go to a separate package, tagged
 ghcr.io/mm503/avahi-controller-dev:dev-<version>-<branch>-<sha>
 ```
 
-### Optional systemd reload
 
-The default install relies on avahi watching its hosts file and does not mount
-the host D-Bus socket. Set `reload.enabled=true` in Helm to enable systemd reloads.
-This grants the root container access to privileged host systemd operations,
-including starting root processes on the node. Enable it only for trusted images.
-For raw manifests, add `--reload`, a `dbus-socket` hostPath volume of type `Socket`
-for `/run/dbus/system_bus_socket`, its read-only mount at the same path, and
-`DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket` together.
+## Health and repair
+
+The default `0.6.4` image does not expose health endpoints, so the chart and raw
+manifest leave probes disabled. With an image built from this code, set
+`healthProbes.enabled=true` in Helm. For the raw manifest, add container port 8080
+and HTTP readiness/liveness probes for `/readyz` and `/healthz`, respectively;
+give liveness an initial delay of 90 seconds.
+
+Cache sync must complete within one minute. `/readyz` and `/healthz` on port 8080
+return success after a completed reconcile, including passes with pending IPs.
+They fail when the last success is older than `resync-period + 1m`, except that
+malformed markers immediately fail readiness while liveness stays successful so
+the controller can wait for manual repair without restarting.
+Repeated reconciliation failures emit a `ReconcileFailed` Warning Event on the pod.
+The controller checks for hosts-file changes every second and reconciles them.
+Malformed markers require manual repair; markers inside ordinary comments are
+ignored. Remove stray legacy END lines only after checking the static entries.
