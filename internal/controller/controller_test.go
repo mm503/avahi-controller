@@ -2,8 +2,15 @@ package controller
 
 import (
 	"context"
+	"github.com/mm503/avahi-controller/internal/hostsfile"
+	"github.com/mm503/avahi-controller/internal/reconciler"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes/fake"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -139,4 +146,132 @@ func TestHealth_StaleAfterRepeatedFailures(t *testing.T) {
 	check(http.StatusServiceUnavailable)
 	c.markReady()
 	check(http.StatusOK)
+}
+
+func workerFixture(t *testing.T) (*Controller, *hostsfile.Manager) {
+	t.Helper()
+	informer := cache.NewSharedIndexInformer(&cache.ListWatch{}, &corev1.Service{}, 0, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	mgr := &hostsfile.Manager{FilePath: filepath.Join(t.TempDir(), "hosts")}
+	rec := &reconciler.Reconciler{Lister: corelisters.NewServiceLister(informer.GetIndexer()), HostsMgr: mgr}
+	c, err := New(informer, rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.queue.ShutDown)
+	return c, mgr
+}
+
+func TestProcessNextItem_FailureRequeuesWithBackoff(t *testing.T) {
+	c, mgr := workerFixture(t)
+	if err := os.Mkdir(mgr.FilePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	c.queue.Add(sentinelKey)
+	start := time.Now()
+	if !c.processNextItem(context.Background()) {
+		t.Fatal("worker stopped")
+	}
+	if c.queue.NumRequeues(sentinelKey) != 1 {
+		t.Fatal("failed item was not rate limited")
+	}
+	retried := make(chan string, 1)
+	go func() {
+		item, quit := c.queue.Get()
+		if !quit {
+			c.queue.Done(item)
+			retried <- item
+		}
+	}()
+	select {
+	case item := <-retried:
+		if item != sentinelKey || time.Since(start) < 80*time.Millisecond {
+			t.Fatal("retry did not use production backoff")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("failed reconcile was never retried")
+	}
+}
+
+func TestProcessNextItem_SuccessForgets(t *testing.T) {
+	c, _ := workerFixture(t)
+	c.queue.AddRateLimited(sentinelKey)
+	if !c.processNextItem(context.Background()) {
+		t.Fatal("worker stopped")
+	}
+	if c.queue.NumRequeues(sentinelKey) != 0 {
+		t.Fatal("successful item retained backoff")
+	}
+	if !c.initialDone.Load() || c.lastSuccess.Load() == 0 {
+		t.Fatal("success did not mark ready")
+	}
+}
+
+func TestProcessNextItem_RepeatedFailureEmitsOneWarning(t *testing.T) {
+	c, mgr := workerFixture(t)
+	if err := os.Mkdir(mgr.FilePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	warnings := 0
+	c.FailureEvent = func(error) { warnings++ }
+	for i := 0; i < 4; i++ {
+		c.queue.Add(sentinelKey)
+		c.processNextItem(context.Background())
+	}
+	if warnings != 1 {
+		t.Fatalf("warnings: %d", warnings)
+	}
+}
+
+type blockingReloader struct{ started, release chan struct{} }
+
+func (r *blockingReloader) Reload(context.Context) error { close(r.started); <-r.release; return nil }
+
+func TestRun_WaitsForInFlightReconcile(t *testing.T) {
+	svc := makeSvc("default", "nas")
+	svc.Spec.Type = corev1.ServiceTypeLoadBalancer
+	svc.Annotations = map[string]string{"avahi.homelab/hostname": "nas.local"}
+	svc.Status.LoadBalancer.Ingress = []corev1.LoadBalancerIngress{{IP: "10.0.0.1"}}
+	client := fake.NewClientset(svc)
+	factory := informers.NewSharedInformerFactory(client, time.Minute)
+	informer := factory.Core().V1().Services()
+	reload := &blockingReloader{started: make(chan struct{}), release: make(chan struct{})}
+	rec := &reconciler.Reconciler{Lister: informer.Lister(), HostsMgr: &hostsfile.Manager{FilePath: filepath.Join(t.TempDir(), "hosts")}, Reloader: reload}
+	c, err := New(informer.Informer(), rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	released := false
+	defer func() {
+		if !released {
+			close(reload.release)
+		}
+	}()
+	factory.Start(ctx.Done())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-reload.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("reconcile never started")
+	}
+	// Re-dirty the item while the first pass is blocked, then cancel.
+	c.queue.Add(sentinelKey)
+	cancel()
+	select {
+	case err := <-done:
+		t.Fatalf("Run returned before reconcile finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(reload.release)
+	released = true
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not stop")
+	}
 }
