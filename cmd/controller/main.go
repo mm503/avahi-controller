@@ -63,7 +63,7 @@ func run() error {
 	// single log format and sink. Outside debug mode, gate klog's Info calls
 	// via V(10) — logr's Info is suppressed at high verbosities, but Error
 	// calls always pass through. Info-level watch warnings are suppressed too;
- // use --debug to see them. --verbose only enables controller details.
+	// use --debug to see them. --verbose only enables controller details.
 	klogLogger := logr.FromSlogHandler(handler)
 	if !debug {
 		klogLogger = klogLogger.V(10)
