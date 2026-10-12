@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -648,5 +649,28 @@ func TestReconcile_ClearsFileWhenNoServices(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("expected empty block, got %v", entries)
+	}
+}
+
+func TestBuildDesiredEntries_ConflictWinnerAcrossNamespaces(t *testing.T) {
+	old := makeSvc("zzz", "nas", "nas.local", "10.0.0.50")
+	newer := makeSvc("aaa", "nas", "nas.local", "10.0.0.66")
+	old.CreationTimestamp = metav1.NewTime(time.Unix(1, 0))
+	newer.CreationTimestamp = metav1.NewTime(time.Unix(2, 0))
+	r, _ := newReconciler(t, []*corev1.Service{newer, old}, nil)
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].IP != "10.0.0.50" {
+		t.Fatalf("winner: %v", entries)
+	}
+	newer.CreationTimestamp = old.CreationTimestamp
+	entries, _, err = r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].IP != "10.0.0.66" {
+		t.Fatalf("tie winner: %v", entries)
 	}
 }

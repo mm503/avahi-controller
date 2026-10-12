@@ -61,7 +61,7 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 | MetalLB reassigns IP | Update event → entry rewritten |
 | Service deleted | Entry removed immediately |
 | Node reboots, file wiped | Pod reschedules to same node; startup reconcile rewrites |
-| Two Services claim same hostname | First writer wins; second is skipped with a log error and Kubernetes Event |
+| Two Services claim same hostname | Oldest ready Service wins (creation timestamp, then namespace/name to break ties); second is skipped with a log error and Kubernetes Event |
 | Annotation added to existing Service | Treated as new entry |
 | Annotation removed | Entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → no write, no reload |

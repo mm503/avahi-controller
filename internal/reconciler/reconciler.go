@@ -162,9 +162,12 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	}
 
 	// The lister returns services in nondeterministic (map) order. Sort by
-	// namespace/name so hostname conflicts resolve to the same winner on
-	// every pass instead of flapping between reconciles.
+	// creation time so the oldest ready Service wins a hostname conflict.
+	// Namespace/name breaks ties deterministically (including missing timestamps).
 	sort.Slice(svcs, func(i, j int) bool {
+		if !svcs[i].CreationTimestamp.Equal(&svcs[j].CreationTimestamp) {
+			return svcs[i].CreationTimestamp.Before(&svcs[j].CreationTimestamp)
+		}
 		if svcs[i].Namespace != svcs[j].Namespace {
 			return svcs[i].Namespace < svcs[j].Namespace
 		}
