@@ -18,8 +18,8 @@ import (
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
 	"github.com/mm503/avahi-controller/internal/avahi"
-	"github.com/mm503/avahi-controller/internal/events"
 	"github.com/mm503/avahi-controller/internal/hostsfile"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 const annotationHostname = "avahi.homelab/hostname"
@@ -53,12 +53,17 @@ func validHostname(s string) bool {
 	return len(s) <= 253 && hostnamePattern.MatchString(s) && net.ParseIP(s) == nil
 }
 
+// WarningRecorder emits Warning Events for Services rejected or still pending.
+type WarningRecorder interface {
+	Warnf(runtime.Object, string, string, ...any)
+}
+
 // Reconciler performs full desired-state reconciliation on every call.
 type Reconciler struct {
 	Lister   corev1listers.ServiceLister
 	HostsMgr *hostsfile.Manager
 	Reloader avahi.Reloader // nil means reload is disabled
-	Recorder *events.Recorder
+	Recorder WarningRecorder
 
 	// reloadPending is set after a successful write whose reload failed, so
 	// the retry attempts the reload even though the file content already
