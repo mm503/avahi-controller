@@ -145,20 +145,18 @@ jobs:
         with:
           ref: main
 
-      - name: Update chart appVersion and image tag
+      - name: Update chart version, appVersion and image tag
         run: |
           VERSION="${{ needs.release-please.outputs.tag_name }}"
           VERSION="${VERSION#v}"
+          # The chart is released only alongside the app, so it carries the
+          # app's version and follows the same semver (breaking app or chart
+          # changes are both marked feat! and bump the major version).
+          sed -i "s/^version: .*/version: ${VERSION}/" charts/avahi-controller/Chart.yaml
           sed -i "s/^appVersion: .*/appVersion: \"${VERSION}\"/" charts/avahi-controller/Chart.yaml
           sed -i -E "s|(image: .*/avahi-controller):.*|\1:${VERSION}|" charts/avahi-controller/Chart.yaml
           sed -i "s/^  tag: .*/  tag: \"${VERSION}\"/" charts/avahi-controller/values.yaml
           sed -i -E "s|(image: .*/avahi-controller):.*|\1:${VERSION}|" deploy/deployment.yaml
-
-      - name: Bump chart version
-        run: |
-          CHART_VERSION=$(grep '^version:' charts/avahi-controller/Chart.yaml | awk '{print $2}')
-          NEW_CHART_VERSION=$(echo "$CHART_VERSION" | awk -F. '{$NF = $NF + 1; print}' OFS='.')
-          sed -i "s/^version: .*/version: ${NEW_CHART_VERSION}/" charts/avahi-controller/Chart.yaml
 
       - name: Commit and push
         run: |
