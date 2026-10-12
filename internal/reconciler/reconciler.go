@@ -26,10 +26,9 @@ const annotationHostname = "avahi.homelab/hostname"
 
 // pendingIPEventThreshold is the number of consecutive reconcile passes a
 // qualifying Service may spend without a LoadBalancer IP before a Warning
-// event is emitted. With the controller's exponential backoff (capped at
-// 30s) this corresponds to roughly six minutes — well past normal MetalLB
-// assignment time, so hitting it usually means a misconfigured or exhausted
-// address pool.
+// event is emitted. This counts passes, not elapsed time: Service events,
+// file changes and retry backoff all affect how quickly it is reached. A
+// persistent lack of an IP may indicate a misconfigured or exhausted pool.
 const pendingIPEventThreshold = 20
 
 // reloadTimeout bounds a single avahi reload call over D-Bus.
