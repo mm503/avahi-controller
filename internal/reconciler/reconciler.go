@@ -81,6 +81,7 @@ type Reconciler struct {
 	// once instead of on every reconcile pass. Only touched by the single
 	// worker goroutine.
 	warnedNonLocal map[string]bool
+	warnedProblems map[string]bool
 
 	// startupLogged is set after the first reconcile pass has logged the
 	// entries found in the hosts file, so the inventory is printed exactly
@@ -190,6 +191,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	skipped := 0
 	pendingIP := make(map[string]int)
 	nonLocal := make(map[string]bool)
+	problems := make(map[string]bool)
 
 	for _, svc := range svcs {
 		if !r.qualifies(svc) {
@@ -219,10 +221,13 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		hostname := strings.TrimSpace(svc.Annotations[annotationHostname])
 
 		if !validHostname(hostname) {
-			slog.Error("invalid hostname annotation, skipping service", "hostname", hostname, "service", key)
-			if r.Recorder != nil {
-				r.Recorder.Warnf(svc, "InvalidHostname",
-					"annotation %s value %q is not a valid hostname", annotationHostname, hostname)
+			warningKey := key + " " + string(svc.UID) + " invalid " + hostname
+			problems[warningKey] = true
+			if !r.warnedProblems[warningKey] {
+				slog.Error("invalid hostname annotation, skipping service", "hostname", hostname, "service", key)
+				if r.Recorder != nil {
+					r.Recorder.Warnf(svc, "InvalidHostname", "annotation %s value %q is not a valid hostname", annotationHostname, hostname)
+				}
 			}
 			continue
 		}
@@ -245,13 +250,17 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		}
 
 		if owner, conflict := claimed[hostnameKey]; conflict {
-			slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner, "skipped", key)
-			if r.Recorder != nil {
-				r.Recorder.Warnf(svc, "HostnameConflict",
-					"hostname %q is already claimed by %s", hostname, owner)
+			warningKey := key + " " + string(svc.UID) + " conflict " + hostnameKey + " " + owner
+			problems[warningKey] = true
+			if !r.warnedProblems[warningKey] {
+				slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner, "skipped", key)
+				if r.Recorder != nil {
+					r.Recorder.Warnf(svc, "HostnameConflict", "hostname %q is already claimed by %s", hostname, owner)
+				}
 			}
 			continue
 		}
+
 		claimed[hostnameKey] = key
 
 		slog.Debug("include service", "service", key, "ip", ip, "hostname", hostname)
@@ -265,6 +274,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	// stopped qualifying) drop out and start fresh if they regress later.
 	r.pendingIPCounts = pendingIP
 	r.warnedNonLocal = nonLocal
+	r.warnedProblems = problems
 
 	slog.Debug("scan complete", "total", len(svcs), "qualifying", len(entries), "skipped", skipped)
 	return entries, needsRequeue, nil

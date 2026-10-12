@@ -771,8 +771,8 @@ func TestBuildDesiredEntries_EmitsWarnings(t *testing.T) {
 		services     []*corev1.Service
 		passes       int
 	}{
-		{"invalid", "InvalidHostname", []*corev1.Service{makeSvc("default", "bad", "bad!", "10.0.0.1")}, 1},
-		{"conflict", "HostnameConflict", []*corev1.Service{makeSvc("default", "a", "nas.local", "10.0.0.1"), makeSvc("default", "b", "NAS.local", "10.0.0.2")}, 1},
+		{"invalid", "InvalidHostname", []*corev1.Service{makeSvc("default", "bad", "bad!", "10.0.0.1")}, 3},
+		{"conflict", "HostnameConflict", []*corev1.Service{makeSvc("default", "a", "nas.local", "10.0.0.1"), makeSvc("default", "b", "NAS.local", "10.0.0.2")}, 3},
 		{"nonlocal once", "NonLocalHostname", []*corev1.Service{makeSvc("default", "nas", "nas.example", "10.0.0.1")}, 3},
 		{"pending threshold once", "PendingLoadBalancerIP", []*corev1.Service{makeSvc("default", "nas", "nas.local", "")}, pendingIPEventThreshold + 3},
 	}
@@ -861,5 +861,28 @@ func TestReconcile_ReloadDeadlinePropagates(t *testing.T) {
 	}
 	if !r.reloadPending {
 		t.Fatal("deadline cleared pending reload")
+	}
+}
+
+func TestBuildDesiredEntries_ProblemWarningsResetAfterRepair(t *testing.T) {
+	svc := makeSvc("default", "bad", "bad!", "10.0.0.1")
+	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	fake := record.NewFakeRecorder(10)
+	r.Recorder = fakeWarnings{fake}
+	buf := captureLog(t)
+	for i := 0; i < 3; i++ {
+		if _, _, err := r.buildDesiredEntries(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Count(buf.String(), "invalid hostname annotation") != 1 {
+		t.Fatalf("repeated logs: %s", buf.String())
+	}
+	svc.Annotations[annotationHostname] = "good.local"
+	r.buildDesiredEntries()
+	svc.Annotations[annotationHostname] = "bad!"
+	r.buildDesiredEntries()
+	if len(fake.Events) != 2 {
+		t.Fatalf("warnings should reset after repair: %d", len(fake.Events))
 	}
 }
