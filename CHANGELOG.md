@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.0.0](https://github.com/mm503/avahi-controller/compare/v0.6.4...v1.0.0) (2026-10-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* --reload and --avahi-service are removed; passing either now fails flag parsing at startup. Remove them from args. The chart no longer mounts /run/dbus/system_bus_socket.
+
+### Features
+
+* remove systemd reload and host D-Bus access ([8279a4e](https://github.com/mm503/avahi-controller/commit/8279a4e64286afb318400cd399578fda5db54a9c))
+
+
+### Bug Fixes
+
+* **ci:** pin GitHub Actions to commit digests (F19) ([bcbe93e](https://github.com/mm503/avahi-controller/commit/bcbe93ef8a3d53f26a4083ffbd65b0e675b1a13e))
+* **config:** reject nonpositive resync periods (F10) ([9468031](https://github.com/mm503/avahi-controller/commit/946803125d5aeccebf01199c30b9e8fb540e4228))
+* **container:** pin runtime image and enable default seccomp (F21) ([1cee106](https://github.com/mm503/avahi-controller/commit/1cee106cdb13ad08a698d363e6c039eec0bfa970))
+* **controller:** skip reconciles once shutdown starts (F09) ([b290d44](https://github.com/mm503/avahi-controller/commit/b290d4401a7575bb2daac4cc051df9fc3512edcc))
+* **deps:** pin dependencies ([be32e5d](https://github.com/mm503/avahi-controller/commit/be32e5d3bd81c0267da74fc0be5d6492a47f452d))
+* **deps:** tidy module metadata (F23) ([355f949](https://github.com/mm503/avahi-controller/commit/355f9498f628205ddd99ff77ddcb22f7f54ef592))
+* **deps:** upgrade x/net past reachable advisories (F20) ([9058be6](https://github.com/mm503/avahi-controller/commit/9058be64d7f8e41d48ec983893d6fc62bd47f941))
+* **hostsfile:** do not open the hosts file when nothing changes ([09e2098](https://github.com/mm503/avahi-controller/commit/09e2098bd776d8630991f9afb72d127785f966e4))
+* **hostsfile:** match whole marker lines and pin format (F17) ([a8f606c](https://github.com/mm503/avahi-controller/commit/a8f606c4878c5af611c9bfa0365854d22cbf0839))
+* **rbac:** drop unused get on services ([69f5414](https://github.com/mm503/avahi-controller/commit/69f541436d597ecb51f0f6228ca1e2728d0a7ebb))
+* **reconciler:** skip entries longer than avahi can parse ([9d5615d](https://github.com/mm503/avahi-controller/commit/9d5615ddb02b8a5fed3e34ad8a77da0e904212d2))
+* **release:** update extra files as plain text ([4910f17](https://github.com/mm503/avahi-controller/commit/4910f17cb4ffc679b7e0e5c41c3595bd1b76d844))
+
 ## [0.6.4](https://github.com/mm503/avahi-controller/compare/v0.6.3...v0.6.4) (2026-10-08)
 
 
