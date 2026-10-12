@@ -230,6 +230,47 @@ func TestWriteBlock_FileNotExistYet(t *testing.T) {
 	}
 }
 
+// Opening the file for writing makes avahi-daemon reload, so a write that
+// would not change anything (such as --cleanup-on-exit with no managed block)
+// must not open it. A read-only file makes any such open fail.
+func TestWriteBlock_UnchangedDoesNotOpenForWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	entries := []HostEntry{{IP: "10.0.0.1", Hostname: "svc.local"}}
+	for name, tc := range map[string]struct {
+		initial string
+		entries []HostEntry
+	}{
+		"static only, remove block": {initial: "127.0.0.1 localhost\n"},
+		"block already current":     {initial: renderBlock(entries) + "\n", entries: entries},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, path := newManager(t, tc.initial)
+			if err := os.Chmod(path, 0o444); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.WriteBlock(tc.entries); err != nil {
+				t.Fatalf("unchanged write opened the file: %v", err)
+			}
+			if got := readFile(t, path); got != tc.initial {
+				t.Errorf("file changed:\n%q", got)
+			}
+		})
+	}
+}
+
+func TestWriteBlock_RemoveFromMissingFileDoesNotCreateIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	m := &Manager{FilePath: path}
+	if err := m.WriteBlock(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("expected no file, stat err = %v", err)
+	}
+}
+
 func TestWriteBlock_SortsEntriesByIP(t *testing.T) {
 	m, path := newManager(t, "")
 
@@ -246,7 +287,7 @@ func TestWriteBlock_SortsEntriesByIP(t *testing.T) {
 	idx1 := strings.Index(out, "10.0.0.1")
 	idx2 := strings.Index(out, "10.0.0.2")
 	idx3 := strings.Index(out, "10.0.0.3")
-	if !(idx1 < idx2 && idx2 < idx3) {
+	if idx1 >= idx2 || idx2 >= idx3 {
 		t.Errorf("entries not sorted by IP:\n%s", out)
 	}
 }

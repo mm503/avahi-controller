@@ -115,7 +115,8 @@ func run() error {
 
 	// Cleanup runs regardless of whether ctrl.Run returned an error, since the
 	// hosts file may have been written during successful reconciles before the
-	// failure. WriteBlock(nil) is idempotent if the managed block isn't present.
+	// failure. If the managed block isn't present, WriteBlock(nil) does not
+	// open the file for writing, so avahi is not made to reload.
 	if cleanupOnExit {
 		slog.Info("cleanup: removing managed block from hosts file")
 		if err := hostsMgr.WriteBlock(nil); err != nil {

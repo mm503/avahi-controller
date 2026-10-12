@@ -88,7 +88,7 @@ Own only a marked block, never the full file:
 
 Write sequence:
 1. Read current file
-2. Replace content between markers (or append block if markers absent)
+2. Replace content between markers (or append block if markers absent); stop here if nothing changed, without opening the file for writing
 3. Stage the updated content in memory, then overwrite and truncate the existing file inode (created with 0644 permissions if absent). Replacing the inode would break the single-file hostPath mount.
 
 Malformed or ambiguous block markers cause reconciliation to fail without changing the file. Ordinary write errors trigger a best-effort restore of the prior content. A sudden process or host failure during an in-place write can still leave partial content; atomic replacement is incompatible with the current single-file mount.
@@ -119,8 +119,10 @@ Consequences for the controller:
 
 - `IN_CLOSE_WRITE` fires when a file *opened for writing* is closed, even if
   nothing was written. The reconciler compares hashes before calling
-  `WriteBlock`, so unchanged passes never open the file for writing and never
-  make avahi reload. Tests assert this by making the file read-only.
+  `WriteBlock`, and `WriteBlock` itself reads the file and returns early when
+  the content would not change (for example `--cleanup-on-exit` with no
+  managed block). Unchanged passes therefore never open the file for writing
+  and never make avahi reload. Tests assert this by making the file read-only.
 - The parser reads one IP and one hostname per line, ignores `#` comments and
   blank lines, and on any invalid line (aliases, bad address, missing
   hostname) logs an error and stops (`goto fail`). Entries after that line are
