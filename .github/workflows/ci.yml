@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches-ignore: ["main"]
   pull_request:
@@ -27,7 +28,7 @@ jobs:
         run: helm lint charts/avahi-controller
 
       - name: Template chart
-        run: helm template avahi-controller charts/avahi-controller > /dev/null
+        run: sh tooling/chart_test.sh
 
   test:
     runs-on: ubuntu-latest
@@ -65,7 +66,7 @@ jobs:
 
       - name: Get current release version
         id: version
-        run: echo "version=$(jq -r '.["."]' .release-please-manifest.json)" >> $GITHUB_OUTPUT
+        run: echo "version=$(jq -r '.["."]' .release-please-manifest.json)" >> "$GITHUB_OUTPUT"
 
       - name: Build binaries
         run: |
@@ -85,9 +86,9 @@ jobs:
       - name: Set image tag
         id: tag
         run: |
-          BRANCH=$(echo "${GITHUB_REF_NAME}" | sed 's/[^a-zA-Z0-9._-]/-/g')
+          BRANCH="${GITHUB_REF_NAME//[^a-zA-Z0-9._-]/-}"
           SHA="${GITHUB_SHA:0:7}"
-          echo "value=dev-${{ steps.version.outputs.version }}-${BRANCH}-${SHA}" >> $GITHUB_OUTPUT
+          echo "value=dev-${{ steps.version.outputs.version }}-${BRANCH}-${SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
         run: |
