@@ -886,3 +886,16 @@ func TestBuildDesiredEntries_ProblemWarningsResetAfterRepair(t *testing.T) {
 		t.Fatalf("warnings should reset after repair: %d", len(fake.Events))
 	}
 }
+
+func TestLoadBalancerIP_RejectsNonIP(t *testing.T) {
+	for _, ip := range []string{"1.1.1.1\n### BEGIN k8s-avahi-controller ###", "not-an-ip", "010.000.000.001", "1.2.3.999"} {
+		if got := loadBalancerIP(makeSvc("default", "svc", "nas.local", ip)); got != "" {
+			t.Fatalf("accepted %q as %q", ip, got)
+		}
+	}
+	svc := makeSvc("default", "svc", "nas.local", "invalid")
+	svc.Status.LoadBalancer.Ingress = append(svc.Status.LoadBalancer.Ingress, corev1.LoadBalancerIngress{IP: "2001:0db8:0:0:0:0:0:1"})
+	if got := loadBalancerIP(svc); got != "2001:db8::1" {
+		t.Fatalf("canonical IP: %q", got)
+	}
+}

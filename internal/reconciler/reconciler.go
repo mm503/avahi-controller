@@ -314,13 +314,13 @@ func logDiff(old, desired []hostsfile.HostEntry) {
 	}
 }
 
-// loadBalancerIP returns the first allocated LoadBalancer IP, or "" if not yet
+// loadBalancerIP returns the first valid, canonical LoadBalancer IP, or "" if not yet
 // assigned. Ingress entries without an IP (e.g. hostname-only entries from
 // cloud LBs) are skipped rather than treated as "still pending".
 func loadBalancerIP(svc *corev1.Service) string {
 	for _, ing := range svc.Status.LoadBalancer.Ingress {
-		if ing.IP != "" {
-			return ing.IP
+		if ip := net.ParseIP(ing.IP); ip != nil {
+			return ip.String()
 		}
 	}
 	return ""
