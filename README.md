@@ -158,3 +158,13 @@ Builds from feature branches go to a separate package, tagged
 ```
 ghcr.io/mm503/avahi-controller-dev:dev-<version>-<branch>-<sha>
 ```
+
+### Optional systemd reload
+
+The default install relies on avahi watching its hosts file and does not mount
+the host D-Bus socket. Set `reload.enabled=true` in Helm to enable systemd reloads.
+This grants the root container access to privileged host systemd operations,
+including starting root processes on the node. Enable it only for trusted images.
+For raw manifests, add `--reload`, a `dbus-socket` hostPath volume of type `Socket`
+for `/run/dbus/system_bus_socket`, its read-only mount at the same path, and
+`DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket` together.

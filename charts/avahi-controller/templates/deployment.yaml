@@ -36,14 +36,21 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       volumes:
         {{- toYaml .Values.volumes | nindent 8 }}
+        {{- if .Values.reload.enabled }}
+        - name: dbus-socket
+          hostPath:
+            path: /run/dbus/system_bus_socket
+            type: Socket
+        {{- end }}
       containers:
         - name: controller
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.args }}
           args:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- range .Values.args }}
+            - {{ . | quote }}
+            {{- end }}
+            - --reload={{ .Values.reload.enabled }}
           {{- with .Values.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -54,10 +61,19 @@ spec:
           {{- end }}
           volumeMounts:
             {{- toYaml .Values.volumeMounts | nindent 12 }}
-          {{- with .Values.env }}
+            {{- if .Values.reload.enabled }}
+            - name: dbus-socket
+              mountPath: /run/dbus/system_bus_socket
+              readOnly: true
+            {{- end }}
           env:
+            {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
-          {{- end }}
+            {{- end }}
+            {{- if .Values.reload.enabled }}
+            - name: DBUS_SYSTEM_BUS_ADDRESS
+              value: unix:path=/run/dbus/system_bus_socket
+            {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

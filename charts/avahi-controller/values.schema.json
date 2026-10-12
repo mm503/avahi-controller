@@ -28,7 +28,10 @@
       "description": "Controller container image.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "pullPolicy"],
+      "required": [
+        "repository",
+        "pullPolicy"
+      ],
       "properties": {
         "repository": {
           "description": "Image repository.",
@@ -38,7 +41,11 @@
         "pullPolicy": {
           "description": "Image pull policy.",
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         },
         "tag": {
           "description": "Image tag. Defaults to the chart appVersion when empty.",
@@ -51,7 +58,9 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -72,7 +81,9 @@
       "description": "ServiceAccount used by the controller pod.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["create"],
+      "required": [
+        "create"
+      ],
       "properties": {
         "create": {
           "description": "Create a ServiceAccount.",
@@ -95,7 +106,9 @@
       "description": "RBAC resources required to watch Services and emit Events.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["create"],
+      "required": [
+        "create"
+      ],
       "properties": {
         "create": {
           "description": "Create the ClusterRole and ClusterRoleBinding.",
@@ -126,18 +139,20 @@
       "type": "object"
     },
     "args": {
-      "description": "Command-line flags passed to the controller binary, e.g. --reload=true or --avahi-service=avahi.service.",
+      "description": "Additional command-line flags. Configure reload through reload.enabled.",
       "type": "array",
       "items": {
         "type": "string"
       }
     },
     "env": {
-      "description": "Environment variables for the controller container. NODE_NAME and DBUS_SYSTEM_BUS_ADDRESS are set by default.",
+      "description": "Additional environment variables. NODE_NAME is set by default; the system bus address is added only when reload.enabled is true.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -171,12 +186,14 @@
       "minimum": 0
     },
     "volumes": {
-      "description": "Pod volumes. Must provide the avahi hosts file and the D-Bus system socket from the host.",
+      "description": "Provide the avahi hosts file. The D-Bus system socket is added only when reload.enabled is true.",
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -186,12 +203,15 @@
       }
     },
     "volumeMounts": {
-      "description": "Volume mounts for the controller container. Must mount the avahi hosts file and the D-Bus system socket.",
+      "description": "Provide the avahi hosts file. The D-Bus system socket is added only when reload.enabled is true.",
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["name", "mountPath"],
+        "required": [
+          "name",
+          "mountPath"
+        ],
         "properties": {
           "name": {
             "type": "string",
@@ -227,20 +247,42 @@
     "affinity": {
       "description": "Affinity rules for the controller pod.",
       "type": "object"
+    },
+    "reload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Mount the host system bus and reload avahi via systemd. Grants root access to the host; disabled by default."
+        }
+      }
     }
   },
   "definitions": {
     "resourceList": {
       "type": "object",
       "additionalProperties": {
-        "type": ["string", "integer"]
+        "type": [
+          "string",
+          "integer"
+        ]
       },
       "properties": {
         "cpu": {
-          "type": ["string", "integer"]
+          "type": [
+            "string",
+            "integer"
+          ]
         },
         "memory": {
-          "type": ["string", "integer"]
+          "type": [
+            "string",
+            "integer"
+          ]
         }
       }
     }
