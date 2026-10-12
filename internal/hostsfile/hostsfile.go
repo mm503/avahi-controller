@@ -76,6 +76,11 @@ func (m *Manager) ReadBlock() ([]HostEntry, error) {
 // If entries is nil or empty, the block (including markers) is removed entirely.
 // Static content outside the markers is preserved.
 // A new file is created with 0644 permissions; an existing file keeps its mode.
+//
+// Opening the file for writing is enough to make avahi-daemon reload: it
+// watches /etc/avahi for IN_CLOSE_WRITE, which fires even when nothing was
+// written. Callers should compare hashes first and call WriteBlock only when
+// the block changed.
 func (m *Manager) WriteBlock(entries []HostEntry) error {
 	file, err := os.OpenFile(m.FilePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
