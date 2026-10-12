@@ -105,13 +105,10 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	slog.Info("waiting for cache sync")
 	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
-		// WaitForCacheSync also returns false when ctx is cancelled — a
-		// SIGTERM during startup is a clean shutdown, not an error.
-		if ctx.Err() != nil {
-			slog.Info("shutdown requested before cache sync completed")
-			return nil
-		}
-		return fmt.Errorf("timed out waiting for cache sync")
+		// WaitForCacheSync only gives up when ctx is cancelled — a SIGTERM
+		// during startup is a clean shutdown, not an error.
+		slog.Info("shutdown requested before cache sync completed")
+		return nil
 	}
 	slog.Info("cache synced")
 
