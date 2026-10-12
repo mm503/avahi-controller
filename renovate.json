@@ -1,11 +1,19 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
   ],
   "packageRules": [
     {
-      "matchUpdateTypes": ["major", "minor", "patch", "digest", "pin", "pinDigest"],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "digest",
+        "pin",
+        "pinDigest"
+      ],
       "semanticCommitType": "fix",
       "semanticCommitScope": "deps"
     }
