@@ -674,3 +674,37 @@ func TestBuildDesiredEntries_ConflictWinnerAcrossNamespaces(t *testing.T) {
 		t.Fatalf("tie winner: %v", entries)
 	}
 }
+
+func TestReconcile_ReloadsOnceAfterRestart(t *testing.T) {
+	reload := &fakeReloader{}
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")}, reload)
+	if err := mgr.WriteBlock([]hostsfile.HostEntry{{IP: "10.0.0.1", Hostname: "nas.local"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !reload.called {
+		t.Fatal("startup did not reload matching file")
+	}
+	reload.called = false
+	if err := r.Reconcile(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if reload.called {
+		t.Fatal("reloaded unchanged file twice")
+	}
+}
+
+func TestReconcile_CancelledDoesNotWrite(t *testing.T) {
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := r.Reconcile(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	entries, err := mgr.ReadBlock()
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("wrote entries: %v, %v", entries, err)
+	}
+}

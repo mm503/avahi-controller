@@ -158,6 +158,10 @@ func (c *Controller) processNextItem(ctx context.Context) bool {
 		return false
 	}
 	defer c.queue.Done(item)
+	if ctx.Err() != nil {
+		c.queue.Forget(item)
+		return false
+	}
 
 	err := c.reconciler.Reconcile(ctx)
 	switch {

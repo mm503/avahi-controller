@@ -88,7 +88,11 @@ type Reconciler struct {
 // Returns ErrMissingIP (wrapped) if any qualifying Service is still pending an IP —
 // the caller should requeue.
 func (r *Reconciler) Reconcile(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !r.startupLogged {
+		r.reloadPending = r.Reloader != nil
 		r.startupLogged = true
 		r.logStartupInventory()
 	}
