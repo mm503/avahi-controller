@@ -4,7 +4,7 @@ A Kubernetes controller that publishes LoadBalancer Service IPs to mDNS by manag
 
 ## How it works
 
-The controller runs as a single pod pinned to one node where `avahi-daemon` is installed. It watches Services cluster-wide and updates a managed block in the node's hosts file whenever the desired state changes. avahi-daemon picks up the change automatically (it watches the file by default).
+The controller runs as a single pod pinned to one node where `avahi-daemon` is installed. It watches Services cluster-wide and updates a managed block in the node's hosts file whenever the desired state changes. avahi-daemon picks up the change by itself: it watches `/etc/avahi` with inotify and re-reads the hosts file whenever a file there is written, so the chart needs no D-Bus or systemd access. The pod mounts only `/etc/avahi/hosts` and rewrites it in place; if the file is replaced on the host (for example by an editor that saves via rename), restart the pod so it binds to the new file.
 
 This can be particularly useful in combination with MetalLB, which assigns LAN IPs to your Kubernetes LoadBalancers.
 
@@ -13,8 +13,9 @@ This can be particularly useful in combination with MetalLB, which assigns LAN I
 ## Prerequisites
 
 - `avahi-daemon` installed and running on the designated node
+- Every static line in `/etc/avahi/hosts` must be one IP address and one hostname; avahi stops reading the file at the first invalid line
 - The node must be labeled with `avahi-controller: "true"` — **the pod will remain Pending without this label**
-- RBAC: `get/list/watch` on Services (cluster-wide), `create/patch` on Events
+- RBAC: `list/watch` on Services (cluster-wide), `create/patch` on Events
 
 ## Node labeling (required)
 

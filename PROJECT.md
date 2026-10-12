@@ -16,7 +16,7 @@ annotations:
 ```
 
 - Only acts on `type: LoadBalancer` Services
-- Only writes entry when `status.loadBalancer.ingress[0].ip` is populated
+- Only writes an entry once a `status.loadBalancer.ingress` entry has an IP (the first one with an IP is used)
 - Ignores Services without the annotation
 - One hostname per Service; no aliases support
 
@@ -57,8 +57,8 @@ On any event:
 Per-Service filtering during scan:
   - type: LoadBalancer? No → skip
   - Has annotation? No → skip
+  - Any .status.loadBalancer.ingress entry with an IP? No → requeue with backoff
   - Annotation is a valid RFC-1123 hostname? No → skip + Warning Event
-  - Has .status.loadBalancer.ingress[0].ip? No → requeue with backoff
 
 On startup:
   - Full reconcile of all Services after cache sync
@@ -94,6 +94,68 @@ Write sequence:
 Malformed or ambiguous block markers cause reconciliation to fail without changing the file. Ordinary write errors trigger a best-effort restore of the prior content. A sudden process or host failure during an in-place write can still leave partial content; atomic replacement is incompatible with the current single-file mount.
 
 Entries inside the block are sorted by IP, then hostname (deterministic even when Services share an IP). Skip the write entirely if the content hash matches the current block — avoids unnecessary avahi reloads on pod restarts when state is already correct.
+
+---
+
+### How avahi-daemon Picks Up Changes
+
+The controller never signals avahi-daemon; it relies on avahi's own file
+watching. From the avahi source (`avahi-daemon/main.c`, `static-hosts.c`):
+
+- At startup avahi-daemon adds an inotify watch on its config directory
+  (`AVAHI_CONFIG_DIR`, i.e. `/etc/avahi`) for `IN_CLOSE_WRITE`, deletes and
+  moves (`add_inotify_watches()`). It is compiled in when `HAVE_INOTIFY` is
+  set, which `configure` enables on Linux.
+- Any event calls `inotify_callback()`, which logs `Files changed, reloading.`
+  and runs `reload_config()`.
+- `reload_config()` calls `static_hosts_load()`, which re-reads
+  `/etc/avahi/hosts`, adds new names and frees names whose line vanished.
+- SIGHUP (`systemctl reload avahi-daemon` → `avahi-daemon -r`) calls the same
+  `reload_config()`. That is why the former `--reload` flag, which went through
+  systemd on the host D-Bus, was redundant and was removed along with the D-Bus
+  socket mount.
+
+Consequences for the controller:
+
+- `IN_CLOSE_WRITE` fires when a file *opened for writing* is closed, even if
+  nothing was written. The reconciler compares hashes before calling
+  `WriteBlock`, so unchanged passes never open the file for writing and never
+  make avahi reload. Tests assert this by making the file read-only.
+- The parser reads one IP and one hostname per line, ignores `#` comments and
+  blank lines, and on any invalid line (aliases, bad address, missing
+  hostname) logs an error and stops (`goto fail`). Entries after that line are
+  not loaded and vanished names are not removed. The managed block is appended
+  at the end of the file, so a bad static line above it hides every managed
+  entry.
+- Lines are read with a 256-byte buffer (`fgets`), so a line longer than 255
+  bytes is split and fails to parse.
+- If avahi-daemon is stopped, the controller keeps writing; avahi loads the
+  file when it starts.
+
+---
+
+### Pod ↔ Host File
+
+The pod mounts the single file `/etc/avahi/hosts` via `hostPath` (`type:
+FileOrCreate`), not the `/etc/avahi` directory. Mounting the directory would
+also expose `avahi-daemon.conf` and `services/` to the pod.
+
+A single-file hostPath is a bind mount of the file's inode at pod start, which
+drives two rules:
+
+- The controller must rewrite the file in place (same inode). Inside the pod
+  the path is a mount point, so the usual write-temp-then-rename pattern cannot
+  replace it, and atomic replacement is not available.
+- If something on the host replaces the file (rename-based editors, config
+  management tools), the pod stays bound to the old, unlinked inode. Its writes
+  succeed but nothing reads them. Restarting the pod binds the new file.
+
+Because the in-place write goes to the inode avahi-daemon's directory watch
+covers, closing it generates `IN_CLOSE_WRITE` on the host and avahi reloads.
+
+The container runs as `runAsUser: 0` with all capabilities dropped. That is
+enough to write the root-owned `0644` hosts file as its owner, and grants no
+other privilege (no `DAC_OVERRIDE`).
 
 ---
 
@@ -136,8 +198,11 @@ spec:
         - name: controller
           image: your-registry/avahi-controller:latest
           securityContext:
+            runAsUser: 0                # owner of the root-owned hosts file
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
-              add: ["DAC_OVERRIDE"]   # file write, no full privileged needed
+              drop: ["ALL"]
           volumeMounts:
             - name: avahi-hosts
               mountPath: /etc/avahi/hosts
@@ -177,11 +242,14 @@ rules:
 | Annotation added to existing Service | Update event → treated as new entry |
 | Annotation is not a valid hostname | Log error, emit k8s Warning Event, skip — value is never written to the file |
 | Annotation removed | Update event → entry removed, same as delete |
-| Pod restarts, file already correct | Hash match → no write |
+| Pod restarts, file already correct | Hash match → file not opened for writing, no avahi reload |
+| avahi-daemon stopped or restarted | Controller keeps writing; avahi loads the file at startup |
+| Invalid static line above the block | avahi stops parsing there; managed entries are not published until it is fixed |
+| Hosts file replaced on the host (rename) | Pod keeps writing the old inode; restart the pod |
 
 ---
 
 ### Implementation Stack
 
 - `k8s.io/client-go` — SharedInformerFactory, rate-limiting work queue, no controller-runtime needed
-- Raw informers are sufficient — ~400 lines of Go, single binary, minimal image
+- Raw informers are sufficient — under 1,000 lines of Go, single binary, minimal image
