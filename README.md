@@ -42,17 +42,9 @@ The controller owns only a marked block and never touches the rest of the file:
 | `--hosts-file` | `/etc/avahi/hosts` | Path to the avahi hosts file |
 | `--kubeconfig` | *(in-cluster)* | Path to kubeconfig; empty uses in-cluster config |
 | `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on controller shutdown |
-| `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write (modern avahi watches hosts files for changes)|
-| `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
 | `--resync-period` | `10m` | Informer resync interval |
 | `--verbose` | `false` | Verbose logging: per-service reconcile details and scan summary |
 | `--debug` | `false` | Debug logging: same as verbose plus client-go internals (very noisy) |
-
-## Avahi reload
-
-By default (`--reload=false`) avahi-daemon notices file changes on its own — no signalling needed. Enable `--reload` only if your setup requires an explicit reload. When enabled, the controller calls `systemctl reload <avahi-service>` via the system D-Bus, which sends SIGHUP to avahi-daemon.
-
-Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_socket`.
 
 ## Edge cases
 
@@ -64,7 +56,7 @@ Requires the system D-Bus socket mounted into the pod at `/run/dbus/system_bus_s
 | Two Services claim same hostname | First writer wins; second is skipped with a log error and Kubernetes Event |
 | Annotation added to existing Service | Treated as new entry |
 | Annotation removed | Entry removed, same as delete |
-| Pod restarts, file already correct | Hash match → no write, no reload |
+| Pod restarts, file already correct | Hash match → no write |
 | Managed block markers are incomplete, reversed, or duplicated | Controller logs a reconciliation error and leaves the file untouched; repair the markers manually so static entries cannot be mistaken for managed content |
 | **Manual edit** to hosts file using a rename-based editor (nano, vim, etc.) | Editor creates a new file inode; the pod's hostPath bind mount (which is a single-file mount) still points to the old inode. Subsequent controller writes silently go to the old inode and are invisible to the host. **Workaround**: restart the pod to re-bind to the current inode. **This is a known tradeoff** of mounting a single file via hostPath; mounting the parent directory instead would fix it but widens the volume scope. |
 
@@ -121,12 +113,12 @@ helm install avahi-controller ./charts/avahi-controller \
 The chart defaults to GHCR. To pull from Docker Hub instead, set
 `--set image.repository=mm404/avahi-controller`.
 
-Example — enable `--reload` and point at a custom avahi service unit:
+Example — enable verbose logging and remove the managed block on shutdown:
 
 ```sh
 helm install avahi-controller ./charts/avahi-controller \
   --namespace kube-system \
-  --set args="{--reload=true,--avahi-service=avahi.service,--verbose}"
+  --set args="{--cleanup-on-exit=true,--verbose}"
 ```
 
 #### Upgrade

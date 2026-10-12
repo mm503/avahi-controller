@@ -89,20 +89,16 @@ Release images are published to both `ghcr.io/mm503/avahi-controller` and
 | `--hosts-file` | `/etc/avahi/hosts` | Path to the avahi hosts file |
 | `--kubeconfig` | *(in-cluster)* | Path to kubeconfig; empty uses in-cluster config |
 | `--cleanup-on-exit` | `false` | Remove managed block from Avahi hosts on controller shutdown |
-| `--reload` | `false` | Signal avahi-daemon via systemd D-Bus after each write |
-| `--avahi-service` | `avahi-daemon.service` | systemd unit name (override for distros using `avahi.service`) |
 | `--resync-period` | `10m` | Informer resync interval |
 | `--verbose` | `false` | Verbose logging |
 | `--debug` | `false` | Debug logging (very noisy) |
 
-Enable `--reload` only if your setup requires an explicit D-Bus reload signal. When enabled, the controller calls `systemctl reload <avahi-service>` via the system D-Bus. Requires the D-Bus socket mounted at `/run/dbus/system_bus_socket`.
-
-Example — enable reload with a custom avahi service unit:
+Example — enable verbose logging and remove the managed block on shutdown:
 
 ```sh
 helm install avahi-controller avahi-controller/avahi-controller \
   --namespace kube-system \
-  --set args="{--reload=true,--avahi-service=avahi.service,--verbose}"
+  --set args="{--cleanup-on-exit=true,--verbose}"
 ```
 
 ## Upgrade

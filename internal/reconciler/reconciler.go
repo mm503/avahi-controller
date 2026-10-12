@@ -1,6 +1,8 @@
 // Package reconciler implements the core reconciliation logic for the avahi controller.
-// It builds desired state from all annotated LoadBalancer Services and conditionally
-// writes the hosts file and reloads avahi-daemon.
+// It builds desired state from all annotated LoadBalancer Services and writes the
+// hosts file only when the managed block changes. avahi-daemon watches its config
+// directory with inotify and reloads the file itself, so every write is published
+// without any signal from the controller.
 package reconciler
 
 import (
@@ -11,13 +13,11 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
-	"github.com/mm503/avahi-controller/internal/avahi"
 	"github.com/mm503/avahi-controller/internal/events"
 	"github.com/mm503/avahi-controller/internal/hostsfile"
 )
@@ -31,9 +31,6 @@ const annotationHostname = "avahi.homelab/hostname"
 // assignment time, so hitting it usually means a misconfigured or exhausted
 // address pool.
 const pendingIPEventThreshold = 20
-
-// reloadTimeout bounds a single avahi reload call over D-Bus.
-const reloadTimeout = 10 * time.Second
 
 // ErrMissingIP is returned when a qualifying Service has no LoadBalancer IP yet.
 // The caller should requeue with backoff.
@@ -57,13 +54,7 @@ func validHostname(s string) bool {
 type Reconciler struct {
 	Lister   corev1listers.ServiceLister
 	HostsMgr *hostsfile.Manager
-	Reloader avahi.Reloader // nil means reload is disabled
 	Recorder *events.Recorder
-
-	// reloadPending is set after a successful write whose reload failed, so
-	// the retry attempts the reload even though the file content already
-	// matches. Only touched by the single worker goroutine.
-	reloadPending bool
 
 	// pendingIPCounts tracks how many consecutive reconcile passes each
 	// qualifying Service (namespace/name) has spent without a LoadBalancer
@@ -114,20 +105,6 @@ func (r *Reconciler) Reconcile(ctx context.Context) error {
 		if err := r.HostsMgr.WriteBlock(desired); err != nil {
 			return fmt.Errorf("write hosts block: %w", err)
 		}
-		r.reloadPending = r.Reloader != nil
-	}
-
-	if r.reloadPending {
-		// Bound the D-Bus call so a hung system bus cannot block the single
-		// worker goroutine indefinitely.
-		reloadCtx, cancel := context.WithTimeout(ctx, reloadTimeout)
-		err := r.Reloader.Reload(reloadCtx)
-		cancel()
-		if err != nil {
-			return fmt.Errorf("reload avahi: %w", err)
-		}
-		r.reloadPending = false
-		slog.Info("avahi reloaded")
 	}
 
 	if needsRequeue {

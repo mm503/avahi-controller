@@ -52,7 +52,7 @@ On any event:
   - Rebuild desired state from ALL annotated LoadBalancer Services
   - Hash desired block content
   - Compare to current block in file
-  - If changed: write file, optionally reload avahi (--reload flag)
+  - If changed: write file (avahi-daemon reloads it on its own)
 
 Per-Service filtering during scan:
   - type: LoadBalancer? No → skip
@@ -93,25 +93,7 @@ Write sequence:
 
 Malformed or ambiguous block markers cause reconciliation to fail without changing the file. Ordinary write errors trigger a best-effort restore of the prior content. A sudden process or host failure during an in-place write can still leave partial content; atomic replacement is incompatible with the current single-file mount.
 
-Entries inside the block are sorted by IP, then hostname (deterministic even when Services share an IP). Skip write + reload entirely if content hash matches current block — avoids unnecessary reloads on pod restarts when state is already correct.
-
----
-
-### Avahi Reload
-
-Reload is **opt-in** via `--reload` flag. By default avahi-daemon watches `/etc/avahi/hosts` itself and picks up changes without any signal.
-
-When `--reload` is set, the controller signals avahi-daemon via **systemd on the system D-Bus**:
-
-```
-org.freedesktop.systemd1.Manager.ReloadUnit(<service>, "replace")
-```
-
-This is equivalent to `systemctl reload <service>` and sends SIGHUP to avahi-daemon, causing it to re-read its hosts file.
-
-The systemd service name defaults to `avahi-daemon.service` and can be overridden with `--avahi-service`.
-
-The system D-Bus socket must be mounted into the pod when `--reload` is used.
+Entries inside the block are sorted by IP, then hostname (deterministic even when Services share an IP). Skip the write entirely if the content hash matches the current block — avoids unnecessary avahi reloads on pod restarts when state is already correct.
 
 ---
 
@@ -122,11 +104,9 @@ The system D-Bus socket must be mounted into the pod when `--reload` is used.
 | `--hosts-file` | `/etc/avahi/hosts` | Path to the avahi hosts file |
 | `--kubeconfig` | `` | Path to kubeconfig (empty = in-cluster) |
 | `--cleanup-on-exit` | `false` | Remove managed block on shutdown |
-| `--avahi-service` | `avahi-daemon.service` | systemd unit name for avahi-daemon |
 | `--resync-period` | `10m` | Informer resync period |
 | `--verbose` | `false` | Log reconcile details (qualifying services, scan summary) |
 | `--debug` | `false` | Log everything including client-go internals |
-| `--reload` | `false` | Signal avahi-daemon via systemd after writing hosts file |
 
 ---
 
@@ -152,10 +132,6 @@ spec:
           hostPath:
             path: /etc/avahi/hosts
             type: FileOrCreate
-        - name: dbus-socket       # only needed when --reload is set
-          hostPath:
-            path: /run/dbus/system_bus_socket
-            type: Socket
       containers:
         - name: controller
           image: your-registry/avahi-controller:latest
@@ -165,8 +141,6 @@ spec:
           volumeMounts:
             - name: avahi-hosts
               mountPath: /etc/avahi/hosts
-            - name: dbus-socket
-              mountPath: /run/dbus/system_bus_socket
           env:
             - name: NODE_NAME
               valueFrom:
@@ -203,13 +177,11 @@ rules:
 | Annotation added to existing Service | Update event → treated as new entry |
 | Annotation is not a valid hostname | Log error, emit k8s Warning Event, skip — value is never written to the file |
 | Annotation removed | Update event → entry removed, same as delete |
-| avahi-daemon not running | Log error, retry with exponential backoff |
-| Pod restarts, file already correct | Hash match → no write, no reload |
+| Pod restarts, file already correct | Hash match → no write |
 
 ---
 
 ### Implementation Stack
 
 - `k8s.io/client-go` — SharedInformerFactory, rate-limiting work queue, no controller-runtime needed
-- `github.com/godbus/dbus/v5` — systemd D-Bus for optional avahi reload
 - Raw informers are sufficient — ~400 lines of Go, single binary, minimal image

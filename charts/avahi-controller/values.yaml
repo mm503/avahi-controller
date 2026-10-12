@@ -41,8 +41,6 @@ env:
     valueFrom:
       fieldRef:
         fieldPath: spec.nodeName
-  - name: DBUS_SYSTEM_BUS_ADDRESS
-    value: unix:path=/run/dbus/system_bus_socket
 
 resources:
   requests:
@@ -59,16 +57,10 @@ volumes:
     hostPath:
       path: /etc/avahi/hosts
       type: FileOrCreate
-  - name: dbus-socket
-    hostPath:
-      path: /run/dbus/system_bus_socket
-      type: Socket
 
 volumeMounts:
   - name: avahi-hosts
     mountPath: /etc/avahi/hosts
-  - name: dbus-socket
-    mountPath: /run/dbus/system_bus_socket
 
 nodeSelector:
   avahi-controller: "true"
