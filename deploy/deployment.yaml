@@ -36,6 +36,8 @@ spec:
             - --cleanup-on-exit=false
             - --verbose
           securityContext:
+            seccompProfile:
+              type: RuntimeDefault
             runAsUser: 0
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
