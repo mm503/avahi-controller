@@ -78,9 +78,16 @@ func (m *Manager) ReadBlock() ([]HostEntry, error) {
 // WriteBlock replaces the managed block in the hosts file with the given entries.
 // If entries is nil or empty, the block (including markers) is removed entirely.
 // Static content outside the markers is preserved.
-// A new file is created with 0644 permissions; an existing file keeps its mode.
+// A nonempty block creates a missing file with 0644 permissions; existing files keep their mode.
 func (m *Manager) WriteBlock(entries []HostEntry) error {
-	file, err := os.OpenFile(m.FilePath, os.O_RDWR|os.O_CREATE, 0644)
+	flags := os.O_RDWR
+	if len(entries) > 0 {
+		flags |= os.O_CREATE
+	}
+	file, err := os.OpenFile(m.FilePath, flags, 0644)
+	if os.IsNotExist(err) && len(entries) == 0 {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("open hosts file: %w", err)
 	}

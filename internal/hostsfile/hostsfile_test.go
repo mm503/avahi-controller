@@ -579,3 +579,33 @@ func TestWriteBlock_MalformedDuplicateEnd(t *testing.T) {
 		t.Fatalf("malformed file modified: %q %v", got, err)
 	}
 }
+
+func TestWriteBlock_NilOnStaticOnlyFileIsNoop(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	mgr := &Manager{FilePath: path}
+	if err := mgr.WriteBlock(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("empty write created missing file: %v", err)
+	}
+	original := "127.0.0.1 localhost\n"
+	if err := os.WriteFile(path, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.WriteBlock(nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != original || !before.ModTime().Equal(after.ModTime()) || before.Mode() != after.Mode() {
+		t.Fatalf("no-op changed file: %q %v", data, err)
+	}
+}
