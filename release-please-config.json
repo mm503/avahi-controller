@@ -2,6 +2,12 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "release-type": "simple",
   "packages": {
-    ".": {}
+    ".": {
+      "extra-files": [
+        "charts/avahi-controller/Chart.yaml",
+        "charts/avahi-controller/values.yaml",
+        "deploy/deployment.yaml"
+      ]
+    }
   }
 }
