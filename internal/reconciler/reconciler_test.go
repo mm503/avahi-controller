@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -30,16 +31,6 @@ func (f *fakeServiceLister) List(_ labels.Selector) ([]*corev1.Service, error) {
 
 func (f *fakeServiceLister) Services(namespace string) corev1listers.ServiceNamespaceLister {
 	panic("not used in tests")
-}
-
-type fakeReloader struct {
-	called bool
-	err    error
-}
-
-func (f *fakeReloader) Reload(_ context.Context) error {
-	f.called = true
-	return f.err
 }
 
 // --- builder helpers ---
@@ -70,26 +61,30 @@ func makeSvc(ns, name, hostname, ip string) *corev1.Service {
 	}
 }
 
-func newReconciler(t *testing.T, svcs []*corev1.Service, reloader *fakeReloader) (*Reconciler, *hostsfile.Manager) {
+func newReconciler(t *testing.T, svcs []*corev1.Service) (*Reconciler, *hostsfile.Manager) {
 	t.Helper()
 	dir := t.TempDir()
 	mgr := &hostsfile.Manager{FilePath: filepath.Join(dir, "hosts")}
-	var r avahiReloader
-	if reloader != nil {
-		r = reloader
-	}
 	rec := &Reconciler{
 		Lister:   &fakeServiceLister{svcs: svcs},
 		HostsMgr: mgr,
-		Reloader: r,
 		Recorder: nil,
 	}
 	return rec, mgr
 }
 
-// avahiReloader is a local alias so we can pass nil cleanly.
-type avahiReloader interface {
-	Reload(ctx context.Context) error
+// forbidHostsWrites makes any later attempt to open the hosts file for writing
+// fail. avahi-daemon reloads whenever a file opened for writing is closed
+// (inotify IN_CLOSE_WRITE), even if nothing changed, so unchanged state must
+// not open the file for writing at all.
+func forbidHostsWrites(t *testing.T, path string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	if err := os.Chmod(path, 0o444); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // --- buildDesiredEntries tests ---
@@ -98,7 +93,7 @@ func TestBuildDesiredEntries_SkipsNonLoadBalancer(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
 	svc.Spec.Type = corev1.ServiceTypeClusterIP
 
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 	entries, requeue, err := r.buildDesiredEntries()
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +109,7 @@ func TestBuildDesiredEntries_SkipsNonLoadBalancer(t *testing.T) {
 func TestBuildDesiredEntries_SkipsNoAnnotation(t *testing.T) {
 	svc := makeSvc("default", "svc", "", "10.0.0.1")
 
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 	entries, requeue, err := r.buildDesiredEntries()
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +125,7 @@ func TestBuildDesiredEntries_SkipsNoAnnotation(t *testing.T) {
 func TestBuildDesiredEntries_MissingIP_SignalsRequeue(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "")
 
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 	entries, requeue, err := r.buildDesiredEntries()
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +140,7 @@ func TestBuildDesiredEntries_MissingIP_SignalsRequeue(t *testing.T) {
 
 func TestBuildDesiredEntries_PendingIPCountsAccumulateAndReset(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "")
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 
 	for i := 1; i <= 3; i++ {
 		if _, _, err := r.buildDesiredEntries(); err != nil {
@@ -170,7 +165,7 @@ func TestBuildDesiredEntries_PendingIPCountsAccumulateAndReset(t *testing.T) {
 
 func TestBuildDesiredEntries_WarnsAtPendingThreshold(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "")
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 	r.pendingIPCounts = map[string]int{"default/svc": pendingIPEventThreshold - 1}
 
 	buf := captureLog(t)
@@ -185,7 +180,7 @@ func TestBuildDesiredEntries_WarnsAtPendingThreshold(t *testing.T) {
 func TestBuildDesiredEntries_SingleService(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
 
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 	entries, requeue, err := r.buildDesiredEntries()
 	if err != nil {
 		t.Fatal(err)
@@ -205,7 +200,7 @@ func TestBuildDesiredEntries_HostnameConflict(t *testing.T) {
 	svc1 := makeSvc("default", "svc1", "app.local", "10.0.0.1")
 	svc2 := makeSvc("default", "svc2", "app.local", "10.0.0.2")
 
-	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2})
 	entries, _, err := r.buildDesiredEntries()
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +217,7 @@ func TestBuildDesiredEntries_HostnameConflictIsCaseInsensitive(t *testing.T) {
 	svc1 := makeSvc("default", "svc1", "APP.Local", "10.0.0.1")
 	svc2 := makeSvc("default", "svc2", "app.local", "10.0.0.2")
 
-	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2})
 	entries, _, err := r.buildDesiredEntries()
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +239,7 @@ func TestBuildDesiredEntries_ConflictWinnerIsDeterministic(t *testing.T) {
 		{svc1, svc2},
 		{svc2, svc1},
 	} {
-		r, _ := newReconciler(t, svcs, nil)
+		r, _ := newReconciler(t, svcs)
 		entries, _, err := r.buildDesiredEntries()
 		if err != nil {
 			t.Fatal(err)
@@ -272,7 +267,7 @@ func TestBuildDesiredEntries_RejectsInvalidHostname(t *testing.T) {
 
 	for _, hostname := range invalid {
 		svc := makeSvc("default", "svc", hostname, "10.0.0.1")
-		r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+		r, _ := newReconciler(t, []*corev1.Service{svc})
 		entries, requeue, err := r.buildDesiredEntries()
 		if err != nil {
 			t.Fatal(err)
@@ -291,7 +286,7 @@ func TestBuildDesiredEntries_AcceptsValidHostnames(t *testing.T) {
 
 	for _, hostname := range valid {
 		svc := makeSvc("default", "svc", hostname, "10.0.0.1")
-		r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+		r, _ := newReconciler(t, []*corev1.Service{svc})
 		entries, _, err := r.buildDesiredEntries()
 		if err != nil {
 			t.Fatal(err)
@@ -304,7 +299,7 @@ func TestBuildDesiredEntries_AcceptsValidHostnames(t *testing.T) {
 
 func TestBuildDesiredEntries_WarnsOnceForNonLocalHostname(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.example.com", "10.0.0.1")
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 
 	buf := captureLog(t)
 	entries, _, err := r.buildDesiredEntries()
@@ -332,14 +327,10 @@ func TestBuildDesiredEntries_WarnsOnceForNonLocalHostname(t *testing.T) {
 
 func TestReconcile_WritesFileOnFirstRun(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
-	reloader := &fakeReloader{}
-	r, mgr := newReconciler(t, []*corev1.Service{svc}, reloader)
+	r, mgr := newReconciler(t, []*corev1.Service{svc})
 
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reloader.called {
-		t.Error("expected avahi reload to be called")
 	}
 	entries, err := mgr.ReadBlock()
 	if err != nil {
@@ -350,67 +341,23 @@ func TestReconcile_WritesFileOnFirstRun(t *testing.T) {
 	}
 }
 
-func TestReconcile_SkipsReloadWhenUnchanged(t *testing.T) {
+func TestReconcile_SkipsWriteWhenUnchanged(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
-	reloader := &fakeReloader{}
-	r, _ := newReconciler(t, []*corev1.Service{svc}, reloader)
+	r, mgr := newReconciler(t, []*corev1.Service{svc})
 
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	reloader.called = false
+	forbidHostsWrites(t, mgr.FilePath)
 
 	if err := r.Reconcile(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if reloader.called {
-		t.Error("reload should be skipped when state is unchanged")
-	}
-}
-
-func TestReconcile_RetriesReloadAfterFailure(t *testing.T) {
-	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
-	reloader := &fakeReloader{err: errors.New("avahi-daemon not running")}
-	r, _ := newReconciler(t, []*corev1.Service{svc}, reloader)
-
-	if err := r.Reconcile(context.Background()); err == nil {
-		t.Fatal("expected error from failed reload")
-	}
-
-	// The file was written, so the hash now matches — but the reload must
-	// still be retried on the next pass.
-	reloader.called = false
-	reloader.err = nil
-
-	if err := r.Reconcile(context.Background()); err != nil {
-		t.Fatalf("retry should succeed: %v", err)
-	}
-	if !reloader.called {
-		t.Error("expected reload to be retried after earlier failure")
-	}
-
-	// Once the reload succeeds, further unchanged passes must not reload.
-	reloader.called = false
-	if err := r.Reconcile(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if reloader.called {
-		t.Error("reload should not repeat after a successful retry")
-	}
-}
-
-func TestReconcile_NoReloaderNilSafe(t *testing.T) {
-	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil) // nil reloader
-
-	if err := r.Reconcile(context.Background()); err != nil {
-		t.Fatalf("nil reloader should not cause error: %v", err)
+		t.Fatalf("unchanged state opened the hosts file for writing: %v", err)
 	}
 }
 
 func TestReconcile_RequeueOnMissingIP(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "")
-	r, _ := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, _ := newReconciler(t, []*corev1.Service{svc})
 
 	err := r.Reconcile(context.Background())
 	if !errors.Is(err, ErrMissingIP) {
@@ -581,7 +528,7 @@ func TestLogDiff(t *testing.T) {
 
 func TestReconcile_LogsStartupInventoryOnce(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
-	r, mgr := newReconciler(t, []*corev1.Service{svc}, nil)
+	r, mgr := newReconciler(t, []*corev1.Service{svc})
 
 	// Pre-populate the hosts file, simulating state left by a previous pod.
 	if err := mgr.WriteBlock([]hostsfile.HostEntry{
@@ -613,7 +560,7 @@ func TestReconcile_LogsStartupInventoryOnce(t *testing.T) {
 }
 
 func TestReconcile_LogsEmptyStartupInventory(t *testing.T) {
-	r, _ := newReconciler(t, nil, nil)
+	r, _ := newReconciler(t, nil)
 
 	buf := captureLog(t)
 	if err := r.Reconcile(context.Background()); err != nil {
@@ -626,21 +573,16 @@ func TestReconcile_LogsEmptyStartupInventory(t *testing.T) {
 
 func TestReconcile_ClearsFileWhenNoServices(t *testing.T) {
 	svc := makeSvc("default", "svc", "app.local", "10.0.0.1")
-	reloader := &fakeReloader{}
-	r, mgr := newReconciler(t, []*corev1.Service{svc}, reloader)
+	r, mgr := newReconciler(t, []*corev1.Service{svc})
 
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
 	r.Lister = &fakeServiceLister{svcs: []*corev1.Service{}}
-	reloader.called = false
 
 	if err := r.Reconcile(context.Background()); err != nil {
 		t.Fatal(err)
-	}
-	if !reloader.called {
-		t.Error("expected reload when block is cleared")
 	}
 	entries, err := mgr.ReadBlock()
 	if err != nil {

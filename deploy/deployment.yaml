@@ -28,10 +28,6 @@ spec:
           hostPath:
             path: /etc/avahi/hosts
             type: FileOrCreate
-        - name: dbus-socket
-          hostPath:
-            path: /run/dbus/system_bus_socket
-            type: Socket
       containers:
         - name: controller
           image: ghcr.io/mm503/avahi-controller:0.6.4
@@ -55,12 +51,8 @@ spec:
           volumeMounts:
             - name: avahi-hosts
               mountPath: /etc/avahi/hosts
-            - name: dbus-socket
-              mountPath: /run/dbus/system_bus_socket
           env:
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: DBUS_SYSTEM_BUS_ADDRESS
-              value: unix:path=/run/dbus/system_bus_socket

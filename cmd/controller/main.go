@@ -17,7 +17,6 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 
-	"github.com/mm503/avahi-controller/internal/avahi"
 	"github.com/mm503/avahi-controller/internal/controller"
 	"github.com/mm503/avahi-controller/internal/events"
 	"github.com/mm503/avahi-controller/internal/hostsfile"
@@ -36,21 +35,17 @@ func run() error {
 		hostsFilePath string
 		kubeconfig    string
 		cleanupOnExit bool
-		avahiService  string
 		resyncPeriod  time.Duration
 		verbose       bool
 		debug         bool
-		reload        bool
 	)
 
 	flag.StringVar(&hostsFilePath, "hosts-file", "/etc/avahi/hosts", "Path to the avahi hosts file")
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig (empty = in-cluster)")
 	flag.BoolVar(&cleanupOnExit, "cleanup-on-exit", false, "Remove managed block from hosts file on shutdown")
-	flag.StringVar(&avahiService, "avahi-service", avahi.DefaultServiceName, "systemd unit name for avahi-daemon (e.g. avahi-daemon.service or avahi.service)")
 	flag.DurationVar(&resyncPeriod, "resync-period", 10*time.Minute, "Informer resync period")
 	flag.BoolVar(&verbose, "verbose", false, "Log reconcile details: qualifying services, scan summary")
 	flag.BoolVar(&debug, "debug", false, "Log everything including Kubernetes client internals (very noisy)")
-	flag.BoolVar(&reload, "reload", false, "Signal avahi-daemon to reload via systemd after writing hosts file (avahi watches the file itself by default)")
 	flag.Parse()
 
 	// --- logging setup ---
@@ -88,10 +83,6 @@ func run() error {
 	}
 
 	hostsMgr := &hostsfile.Manager{FilePath: hostsFilePath}
-	var reloader avahi.Reloader
-	if reload {
-		reloader = avahi.NewDefaultReloader(avahiService)
-	}
 	recorder := events.New(client, nodeName)
 	defer recorder.Stop()
 
@@ -101,7 +92,6 @@ func run() error {
 	rec := &reconciler.Reconciler{
 		Lister:   svcInformer.Lister(),
 		HostsMgr: hostsMgr,
-		Reloader: reloader,
 		Recorder: recorder,
 	}
 
@@ -115,7 +105,7 @@ func run() error {
 
 	factory.Start(ctx.Done())
 
-	slog.Info("avahi-controller started", "node", nodeName, "hosts", hostsFilePath, "reload", reload)
+	slog.Info("avahi-controller started", "node", nodeName, "hosts", hostsFilePath)
 
 	runErr := ctrl.Run(ctx)
 
@@ -126,13 +116,6 @@ func run() error {
 		slog.Info("cleanup: removing managed block from hosts file")
 		if err := hostsMgr.WriteBlock(nil); err != nil {
 			slog.Error("cleanup write failed", "error", err)
-		} else if reloader != nil {
-			// ctx is already cancelled here; give the final reload its own deadline.
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			if err := reloader.Reload(cleanupCtx); err != nil {
-				slog.Error("cleanup reload failed", "error", err)
-			}
 		}
 	}
 
