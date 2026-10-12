@@ -802,3 +802,64 @@ func TestBuildDesiredEntries_EmitsWarnings(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcile_MalformedBlockDoesNotReload(t *testing.T) {
+	reload := &fakeReloader{}
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")}, reload)
+	original := "### BEGIN k8s-avahi-controller ###\nmissing end\n"
+	if err := os.WriteFile(mgr.FilePath, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Reconcile(context.Background()); !errors.Is(err, hostsfile.ErrMalformedBlock) {
+		t.Fatalf("got %v", err)
+	}
+	if reload.called {
+		t.Fatal("malformed block caused a reload")
+	}
+	actual, err := os.ReadFile(mgr.FilePath)
+	if err != nil || string(actual) != original {
+		t.Fatalf("file modified: %q %v", actual, err)
+	}
+}
+
+func TestReconcile_WriteErrorDoesNotReload(t *testing.T) {
+	reload := &fakeReloader{}
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")}, reload)
+	mgr.FilePath = filepath.Join(mgr.FilePath, "missing", "hosts")
+	if err := r.Reconcile(context.Background()); err == nil || !strings.Contains(err.Error(), "write hosts block") {
+		t.Fatalf("got %v", err)
+	}
+	if reload.called {
+		t.Fatal("failed write caused a reload")
+	}
+}
+
+func TestValidHostname_MaxLength253(t *testing.T) {
+	prefix := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "."
+	if !validHostname(prefix + strings.Repeat("d", 61)) {
+		t.Fatal("253-character hostname rejected")
+	}
+	if validHostname(prefix + strings.Repeat("d", 62)) {
+		t.Fatal("254-character hostname accepted")
+	}
+}
+
+type deadlineReloader struct{ t *testing.T }
+
+func (r deadlineReloader) Reload(ctx context.Context) error {
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) > reloadTimeout {
+		r.t.Fatal("reload context is unbounded")
+	}
+	return context.DeadlineExceeded
+}
+func TestReconcile_ReloadDeadlinePropagates(t *testing.T) {
+	r, _ := newReconciler(t, nil, nil)
+	r.Reloader = deadlineReloader{t}
+	if err := r.Reconcile(context.Background()); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("got %v", err)
+	}
+	if !r.reloadPending {
+		t.Fatal("deadline cleared pending reload")
+	}
+}
