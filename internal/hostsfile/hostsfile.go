@@ -23,10 +23,22 @@ const (
 // Refuse to write rather than risk removing unrelated host entries.
 var ErrMalformedBlock = errors.New("malformed managed-block markers")
 
+// MaxLineLength is the longest entry line, excluding the newline, that
+// avahi-daemon reads intact. It parses the hosts file with a 256-byte fgets
+// buffer: a longer line is split, the first part is published with a
+// truncated hostname, and the remainder fails to parse, which stops avahi
+// reading the rest of the file.
+const MaxLineLength = 255
+
 // HostEntry represents one line in the managed block.
 type HostEntry struct {
 	IP       string
 	Hostname string
+}
+
+// Line returns the entry as written to the hosts file, without the newline.
+func (e HostEntry) Line() string {
+	return e.IP + " " + e.Hostname
 }
 
 // Manager owns the hosts file path and all read/write operations on the managed block.
@@ -228,7 +240,7 @@ func renderBlock(entries []HostEntry) string {
 	sb.WriteString(beginMarker + "\n")
 	sb.WriteString("# Managed by avahi-controller. Do not edit between these markers.\n")
 	for _, e := range sorted {
-		sb.WriteString(e.IP + " " + e.Hostname + "\n")
+		sb.WriteString(e.Line() + "\n")
 	}
 	sb.WriteString(endMarker)
 	return sb.String()

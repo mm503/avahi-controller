@@ -91,6 +91,7 @@ which is enough to write a root-owned `0644` file and nothing more.
 | Node reboots, file wiped | Pod reschedules to same node; startup reconcile rewrites |
 | Two Services claim same hostname | The Service with the lowest namespace/name wins deterministically; the other is skipped with a log error and Kubernetes Event |
 | Annotation added to existing Service | Treated as new entry |
+| `IP hostname` line longer than 255 bytes | Skipped with a log error and `HostsLineTooLong` Kubernetes Event; avahi-daemon cannot read longer lines |
 | Annotation removed | Entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → file is not opened for writing, so avahi does not reload |
 | avahi-daemon stopped or restarted | The controller keeps writing the file; avahi reads it when it starts |

@@ -718,3 +718,34 @@ func TestValidHostname_MaxLength253(t *testing.T) {
 		t.Fatal("254-character hostname accepted")
 	}
 }
+
+// hostnameOfLength returns a valid hostname of exactly n bytes (n <= 255).
+func hostnameOfLength(n int) string {
+	return (strings.Repeat(strings.Repeat("a", 63)+".", 3) + strings.Repeat("b", 63))[:n]
+}
+
+func TestBuildDesiredEntries_SkipsLinesAvahiCannotRead(t *testing.T) {
+	fits := makeSvc("default", "fits", hostnameOfLength(hostsfile.MaxLineLength-len("10.0.0.1 ")), "10.0.0.1")
+	tooLong := makeSvc("default", "long", hostnameOfLength(hostsfile.MaxLineLength-len("10.0.0.2 ")+1), "10.0.0.2")
+	r, _ := newReconciler(t, []*corev1.Service{fits, tooLong})
+	fake := record.NewFakeRecorder(10)
+	r.Recorder = fakeWarnings{fake}
+
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].IP != "10.0.0.1" || len(entries[0].Line()) != hostsfile.MaxLineLength {
+		t.Fatalf("want only the %d-byte line, got %v", hostsfile.MaxLineLength, entries)
+	}
+	close(fake.Events)
+	tooLongEvents := 0
+	for event := range fake.Events {
+		if strings.HasPrefix(event, "Warning HostsLineTooLong ") {
+			tooLongEvents++
+		}
+	}
+	if tooLongEvents != 1 {
+		t.Fatalf("HostsLineTooLong events: %d", tooLongEvents)
+	}
+}
