@@ -42,10 +42,19 @@ jobs:
           go-version-file: go.mod
 
       - name: Vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
+
+      - name: Check module metadata
+        run: go mod tidy -diff
+
+      - name: Check vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -race -shuffle=on ./...
 
   build:
     runs-on: ubuntu-latest
@@ -72,6 +81,12 @@ jobs:
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o controller-linux-amd64 ./cmd/controller/
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o controller-linux-arm64 ./cmd/controller/
+
+      - name: Smoke test release image
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o controller-linux-amd64 ./cmd/controller/
+          docker build --build-arg TARGETARCH=amd64 -f Dockerfile.release -t avahi-controller-smoke .
+          docker run --rm avahi-controller-smoke --help
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4

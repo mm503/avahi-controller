@@ -35,7 +35,10 @@ func main() {
 	}
 }
 
-func run() error {
+func run() error { return runArgs(os.Args[1:]) }
+
+func runArgs(args []string) error {
+	flags := flag.NewFlagSet("avahi-controller", flag.ContinueOnError)
 	var (
 		hostsFilePath string
 		kubeconfig    string
@@ -47,15 +50,20 @@ func run() error {
 		reload        bool
 	)
 
-	flag.StringVar(&hostsFilePath, "hosts-file", "/etc/avahi/hosts", "Path to the avahi hosts file")
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig (empty = in-cluster)")
-	flag.BoolVar(&cleanupOnExit, "cleanup-on-exit", false, "Remove managed block from hosts file on shutdown")
-	flag.StringVar(&avahiService, "avahi-service", avahi.DefaultServiceName, "systemd unit name for avahi-daemon (e.g. avahi-daemon.service or avahi.service)")
-	flag.DurationVar(&resyncPeriod, "resync-period", 10*time.Minute, "Informer resync period")
-	flag.BoolVar(&verbose, "verbose", false, "Log reconcile details: qualifying services, scan summary")
-	flag.BoolVar(&debug, "debug", false, "Log everything including Kubernetes client internals (very noisy)")
-	flag.BoolVar(&reload, "reload", false, "Signal avahi-daemon to reload via systemd after writing hosts file (avahi watches the file itself by default)")
-	flag.Parse()
+	flags.StringVar(&hostsFilePath, "hosts-file", "/etc/avahi/hosts", "Path to the avahi hosts file")
+	flags.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig (empty = in-cluster)")
+	flags.BoolVar(&cleanupOnExit, "cleanup-on-exit", false, "Remove managed block from hosts file on shutdown")
+	flags.StringVar(&avahiService, "avahi-service", avahi.DefaultServiceName, "systemd unit name for avahi-daemon (e.g. avahi-daemon.service or avahi.service)")
+	flags.DurationVar(&resyncPeriod, "resync-period", 10*time.Minute, "Informer resync period")
+	flags.BoolVar(&verbose, "verbose", false, "Log reconcile details: qualifying services, scan summary")
+	flags.BoolVar(&debug, "debug", false, "Log everything including Kubernetes client internals (very noisy)")
+	flags.BoolVar(&reload, "reload", false, "Signal avahi-daemon to reload via systemd after writing hosts file (avahi watches the file itself by default)")
+	if err := flags.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
 	if err := validateResync(resyncPeriod); err != nil {
 		return err
 	}
@@ -72,7 +80,7 @@ func run() error {
 	// single log format and sink. Outside debug mode, gate klog's Info calls
 	// via V(10) — logr's Info is suppressed at high verbosities, but Error
 	// calls always pass through. Info-level watch warnings are suppressed too;
- // use --debug to see them. --verbose only enables controller details.
+	// use --debug to see them. --verbose only enables controller details.
 	klogLogger := logr.FromSlogHandler(handler)
 	if !debug {
 		klogLogger = klogLogger.V(10)
@@ -144,7 +152,12 @@ func run() error {
 
 	slog.Info("avahi-controller started", "node", nodeName, "hosts", hostsFilePath, "reload", reload)
 
-	runErr := ctrl.Run(ctx)
+	return finishController(ctx, ctrl.Run, hostsMgr, reloader, cleanupOnExit)
+}
+
+// finishController waits for worker shutdown before removing the managed block.
+func finishController(ctx context.Context, runController func(context.Context) error, hostsMgr *hostsfile.Manager, reloader avahi.Reloader, cleanupOnExit bool) error {
+	runErr := runController(ctx)
 
 	// Cleanup runs regardless of whether ctrl.Run returned an error, since the
 	// hosts file may have been written during successful reconciles before the
