@@ -27,6 +27,8 @@ podLabels: {}
 podSecurityContext: {}
 
 securityContext:
+  seccompProfile:
+    type: RuntimeDefault
   runAsUser: 0
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
