@@ -177,13 +177,24 @@ func replaceBlock(existing string, entries []HostEntry) (string, error) {
 // block, or -1/-1 when no block exists. Ambiguous markers require a manual
 // repair because the controller cannot distinguish managed from static text.
 func blockBounds(content string) (int, int, error) {
-	beginCount := strings.Count(content, beginMarker)
-	endCount := strings.Count(content, endMarker)
+	beginCount, endCount := 0, 0
+	beginIdx, endIdx := -1, -1
+	offset := 0
+	for _, line := range strings.SplitAfter(content, "\n") {
+		text := strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+		switch text {
+		case beginMarker:
+			beginCount++
+			beginIdx = offset
+		case endMarker:
+			endCount++
+			endIdx = offset
+		}
+		offset += len(line)
+	}
 	if beginCount == 0 && endCount == 0 {
 		return -1, -1, nil
 	}
-	beginIdx := strings.Index(content, beginMarker)
-	endIdx := strings.Index(content, endMarker)
 	if beginCount != 1 || endCount != 1 || beginIdx >= endIdx {
 		return -1, -1, ErrMalformedBlock
 	}
