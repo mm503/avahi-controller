@@ -87,24 +87,43 @@ func (m *Manager) ReadBlock() ([]HostEntry, error) {
 // WriteBlock replaces the managed block in the hosts file with the given entries.
 // If entries is nil or empty, the block (including markers) is removed entirely.
 // Static content outside the markers is preserved.
+// A missing file is created only when there are entries to write.
 // A new file is created with 0644 permissions; an existing file keeps its mode.
 //
 // Opening the file for writing is enough to make avahi-daemon reload: it
 // watches /etc/avahi for IN_CLOSE_WRITE, which fires even when nothing was
-// written. Callers should compare hashes first and call WriteBlock only when
-// the block changed.
-func (m *Manager) WriteBlock(entries []HostEntry) error {
+// written. WriteBlock therefore reads the file first and does not open it for
+// writing, or create it, when the content would not change.
+func (m *Manager) WriteBlock(entries []HostEntry) (err error) {
+	current, err := os.ReadFile(m.FilePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read hosts file: %w", err)
+	}
+	updated, err := replaceBlock(string(current), entries)
+	if err != nil {
+		return err
+	}
+	if updated == string(current) {
+		return nil
+	}
+
 	file, err := os.OpenFile(m.FilePath, os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return fmt.Errorf("open hosts file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close hosts file: %w", closeErr)
+		}
+	}()
 
+	// Re-read through the open handle so the update and any rollback are
+	// based on the content actually being replaced.
 	old, err := io.ReadAll(file)
 	if err != nil {
 		return fmt.Errorf("read hosts file: %w", err)
 	}
-	updated, err := replaceBlock(string(old), entries)
+	updated, err = replaceBlock(string(old), entries)
 	if err != nil {
 		return err
 	}
