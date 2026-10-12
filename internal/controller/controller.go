@@ -14,10 +14,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 
+	"github.com/mm503/avahi-controller/internal/hostsfile"
 	"github.com/mm503/avahi-controller/internal/reconciler"
 )
 
@@ -27,6 +27,7 @@ const sentinelKey = "reconcile"
 
 // Controller drives reconciliation from Kubernetes Service events.
 type Controller struct {
+	fatal       chan error
 	informer    cache.SharedIndexInformer
 	queue       workqueue.TypedRateLimitingInterface[string]
 	reconciler  *reconciler.Reconciler
@@ -45,6 +46,7 @@ func New(
 	rec *reconciler.Reconciler,
 ) (*Controller, error) {
 	c := &Controller{
+		fatal:    make(chan error, 1),
 		informer: informer,
 		queue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.NewTypedItemExponentialFailureRateLimiter[string](100*time.Millisecond, 30*time.Second),
@@ -134,17 +136,21 @@ func (c *Controller) Run(ctx context.Context) error {
 	// Run the worker loop until context is cancelled.
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		wait.UntilWithContext(ctx, c.runWorker, time.Second)
+		c.runWorker(ctx)
 	})
 
-	<-ctx.Done()
+	var runErr error
+	select {
+	case <-ctx.Done():
+	case runErr = <-c.fatal:
+	}
 	slog.Info("controller shutting down")
 	// Shut down the queue so the worker's Get() unblocks, then wait for any
 	// in-flight reconcile to finish. Returning while a reconcile is still
 	// writing would let the caller's cleanup race the worker on the hosts file.
 	c.queue.ShutDown()
 	wg.Wait()
-	return nil
+	return runErr
 }
 
 func (c *Controller) runWorker(ctx context.Context) {
@@ -165,6 +171,12 @@ func (c *Controller) processNextItem(ctx context.Context) bool {
 
 	err := c.reconciler.Reconcile(ctx)
 	switch {
+	case errors.Is(err, hostsfile.ErrUnlinkedInode):
+		c.queue.Forget(item)
+		if c.fatal != nil {
+			c.fatal <- err
+		}
+		return false
 	case err == nil:
 		c.markReady()
 		c.queue.Forget(item)

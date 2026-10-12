@@ -19,8 +19,11 @@ const (
 	endMarker   = "### END k8s-avahi-controller ###"
 )
 
-// ErrMalformedBlock means the managed block cannot be identified safely.
-// Refuse to write rather than risk removing unrelated host entries.
+// ErrUnlinkedInode means the host replaced a mounted file. Restart the pod
+// to bind the replacement rather than writing an invisible, deleted inode.
+var ErrUnlinkedInode = errors.New("hosts file inode is unlinked; recreate the pod to rebind the host file")
+
+// ErrMalformedBlock refuses ambiguous markers to preserve static entries.
 var ErrMalformedBlock = errors.New("malformed managed-block markers")
 
 // HostEntry represents one line in the managed block.
@@ -38,7 +41,7 @@ type Manager struct {
 // Returns an empty slice if the file does not exist or contains no markers,
 // and an error if the markers are malformed or ambiguous.
 func (m *Manager) ReadBlock() ([]HostEntry, error) {
-	data, err := os.ReadFile(m.FilePath)
+	data, err := readLinkedFile(m.FilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -82,6 +85,9 @@ func (m *Manager) WriteBlock(entries []HostEntry) error {
 		return fmt.Errorf("open hosts file: %w", err)
 	}
 	defer file.Close()
+	if err := checkLinked(file); err != nil {
+		return err
+	}
 
 	old, err := io.ReadAll(file)
 	if err != nil {
@@ -122,7 +128,19 @@ func (m *Manager) WriteBlock(entries []HostEntry) error {
 		}
 		return fmt.Errorf("write hosts file: %w", writeErr)
 	}
-	return nil
+	return checkLinked(file)
+}
+
+func readLinkedFile(path string) ([]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	if err := checkLinked(file); err != nil {
+		return nil, err
+	}
+	return io.ReadAll(file)
 }
 
 func writeAllAt(file *os.File, data []byte) error {
@@ -227,7 +245,7 @@ func (m *Manager) HashBlock(entries []HostEntry) string {
 // HashCurrentBlock reads the raw block text from the file and hashes it directly.
 // Returns the hash of an empty block if the file has no managed section.
 func (m *Manager) HashCurrentBlock() (string, error) {
-	data, err := os.ReadFile(m.FilePath)
+	data, err := readLinkedFile(m.FilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return m.HashBlock(nil), nil
