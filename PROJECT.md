@@ -127,8 +127,12 @@ Consequences for the controller:
   not loaded and vanished names are not removed. The managed block is appended
   at the end of the file, so a bad static line above it hides every managed
   entry.
-- Lines are read with a 256-byte buffer (`fgets`), so a line longer than 255
-  bytes is split and fails to parse.
+- Lines are read with a 256-byte buffer (`fgets`). A line longer than 255
+  bytes (excluding the newline) is split: the first part is published with a
+  truncated hostname and the remainder fails to parse, stopping the load. The
+  reconciler skips such entries (`hostsfile.MaxLineLength`) with a
+  `HostsLineTooLong` Warning Event; a 253-byte hostname is legal DNS but can
+  exceed the line limit once the IP is added.
 - If avahi-daemon is stopped, the controller keeps writing; avahi loads the
   file when it starts.
 
@@ -241,6 +245,7 @@ rules:
 | Two Services claim same hostname | Log error, emit k8s Warning Event, skip loser — lowest namespace/name wins deterministically |
 | Annotation added to existing Service | Update event → treated as new entry |
 | Annotation is not a valid hostname | Log error, emit k8s Warning Event, skip — value is never written to the file |
+| `IP hostname` line longer than 255 bytes | Log error, emit `HostsLineTooLong` Warning Event, skip — avahi cannot read longer lines |
 | Annotation removed | Update event → entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → file not opened for writing, no avahi reload |
 | avahi-daemon stopped or restarted | Controller keeps writing; avahi loads the file at startup |

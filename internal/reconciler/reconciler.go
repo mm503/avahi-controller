@@ -199,6 +199,17 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 			continue
 		}
 
+		entry := hostsfile.HostEntry{IP: ip, Hostname: hostname}
+		if len(entry.Line()) > hostsfile.MaxLineLength {
+			slog.Error("hosts line too long for avahi-daemon, skipping service",
+				"hostname", hostname, "ip", ip, "service", key)
+			if r.Recorder != nil {
+				r.Recorder.Warnf(svc, "HostsLineTooLong",
+					"entry %q is longer than the %d bytes avahi-daemon can read", entry.Line(), hostsfile.MaxLineLength)
+			}
+			continue
+		}
+
 		hostnameKey := strings.ToLower(hostname)
 
 		// mDNS resolvers only look up names under .local; anything else is
@@ -227,10 +238,7 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		claimed[hostnameKey] = key
 
 		slog.Debug("include service", "service", key, "ip", ip, "hostname", hostname)
-		entries = append(entries, hostsfile.HostEntry{
-			IP:       ip,
-			Hostname: hostname,
-		})
+		entries = append(entries, entry)
 	}
 
 	// Replace rather than update in place so services that got their IP (or
