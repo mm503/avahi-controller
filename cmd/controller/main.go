@@ -56,6 +56,9 @@ func run() error {
 	flag.BoolVar(&debug, "debug", false, "Log everything including Kubernetes client internals (very noisy)")
 	flag.BoolVar(&reload, "reload", false, "Signal avahi-daemon to reload via systemd after writing hosts file (avahi watches the file itself by default)")
 	flag.Parse()
+	if err := validateResync(resyncPeriod); err != nil {
+		return err
+	}
 
 	// --- logging setup ---
 	logLevel := slog.LevelInfo
@@ -173,4 +176,11 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 		return rest.InClusterConfig()
 	}
 	return clientcmd.BuildConfigFromFlags("", kubeconfig)
+}
+
+func validateResync(period time.Duration) error {
+	if period <= 0 {
+		return fmt.Errorf("resync-period must be positive, got %s", period)
+	}
+	return nil
 }
