@@ -592,3 +592,16 @@ func TestReconcile_ClearsFileWhenNoServices(t *testing.T) {
 		t.Errorf("expected empty block, got %v", entries)
 	}
 }
+
+func TestReconcile_CancelledDoesNotWrite(t *testing.T) {
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := r.Reconcile(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	entries, err := mgr.ReadBlock()
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("wrote entries: %v, %v", entries, err)
+	}
+}
