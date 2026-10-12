@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"github.com/mm503/avahi-controller/internal/hostsfile"
 	"github.com/mm503/avahi-controller/internal/reconciler"
 	"k8s.io/client-go/informers"
@@ -273,5 +274,104 @@ func TestRun_WaitsForInFlightReconcile(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not stop")
+	}
+}
+
+func TestProcessNextItem_MalformedMarkersWaitForChange(t *testing.T) {
+	c, mgr := workerFixture(t)
+	if err := os.WriteFile(mgr.FilePath, []byte("### BEGIN k8s-avahi-controller ###\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	warnings := 0
+	c.FailureEvent = func(error) { warnings++ }
+	c.queue.Add(sentinelKey)
+	c.processNextItem(context.Background())
+	if c.queue.NumRequeues(sentinelKey) != 0 || c.queue.Len() != 0 || warnings != 1 {
+		t.Fatalf("retries=%d queue=%d warnings=%d", c.queue.NumRequeues(sentinelKey), c.queue.Len(), warnings)
+	}
+	previous, err := os.Stat(mgr.FilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { c.watchFile(ctx, previous); close(done) }()
+	if err := os.WriteFile(mgr.FilePath, []byte("# repaired\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	itemReady := make(chan string, 1)
+	go func() {
+		item, quit := c.queue.Get()
+		if !quit {
+			c.queue.Done(item)
+			itemReady <- item
+		}
+	}()
+	select {
+	case item := <-itemReady:
+		if item != sentinelKey {
+			t.Fatal(item)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("file repair did not enqueue reconcile")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not stop")
+	}
+}
+
+func TestMalformedMarkers_StayLiveButUnreadyUntilRepaired(t *testing.T) {
+	for _, previouslyReady := range []bool{false, true} {
+		t.Run(fmt.Sprintf("previouslyReady=%v", previouslyReady), func(t *testing.T) {
+			c, mgr := workerFixture(t)
+			if previouslyReady {
+				c.markReady()
+			}
+			if err := os.WriteFile(mgr.FilePath, []byte("### BEGIN k8s-avahi-controller ###\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			c.queue.Add(sentinelKey)
+			c.processNextItem(context.Background())
+			check := func(handler http.HandlerFunc, want int) {
+				t.Helper()
+				w := httptest.NewRecorder()
+				handler(w, httptest.NewRequest("GET", "/", nil))
+				if w.Code != want {
+					t.Fatalf("status %d, want %d", w.Code, want)
+				}
+			}
+			check(c.Health, http.StatusOK)
+			check(c.Ready, http.StatusServiceUnavailable)
+			c.lastSuccess.Store(time.Now().Add(-time.Hour).UnixNano())
+			check(c.Health, http.StatusOK)
+			check(c.Ready, http.StatusServiceUnavailable)
+
+			// A different file error must restore normal liveness failure handling.
+			if err := os.Remove(mgr.FilePath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(mgr.FilePath, 0755); err != nil {
+				t.Fatal(err)
+			}
+			c.queue.Add(sentinelKey)
+			c.processNextItem(context.Background())
+			check(c.Health, http.StatusServiceUnavailable)
+			check(c.Ready, http.StatusServiceUnavailable)
+
+			if err := os.Remove(mgr.FilePath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(mgr.FilePath, []byte("# repaired\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			c.queue.Add(sentinelKey)
+			c.processNextItem(context.Background())
+			check(c.Health, http.StatusOK)
+			check(c.Ready, http.StatusOK)
+		})
 	}
 }

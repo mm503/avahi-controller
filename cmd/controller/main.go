@@ -139,7 +139,7 @@ func runArgs(args []string) error {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", ctrl.Health)
-	mux.HandleFunc("/readyz", ctrl.Health)
+	mux.HandleFunc("/readyz", ctrl.Ready)
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	defer server.Close()
 	go func() {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,12 +28,13 @@ const sentinelKey = "reconcile"
 
 // Controller drives reconciliation from Kubernetes Service events.
 type Controller struct {
-	fatal       chan error
-	informer    cache.SharedIndexInformer
-	queue       workqueue.TypedRateLimitingInterface[string]
-	reconciler  *reconciler.Reconciler
-	initialDone atomic.Bool
-	lastSuccess atomic.Int64
+	fatal            chan error
+	informer         cache.SharedIndexInformer
+	queue            workqueue.TypedRateLimitingInterface[string]
+	reconciler       *reconciler.Reconciler
+	initialDone      atomic.Bool
+	lastSuccess      atomic.Int64
+	waitingForRepair atomic.Bool
 	// SyncTimeout and HealthTimeout default to one minute and 21 minutes.
 	SyncTimeout   time.Duration
 	HealthTimeout time.Duration
@@ -134,7 +136,11 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.queue.Add(sentinelKey)
 
 	// Run the worker loop until context is cancelled.
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	defer stopWorker()
 	var wg sync.WaitGroup
+	initialFile, _ := os.Stat(c.reconciler.HostsMgr.FilePath)
+	wg.Go(func() { c.watchFile(workerCtx, initialFile) })
 	wg.Go(func() {
 		c.runWorker(ctx)
 	})
@@ -144,6 +150,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	case <-ctx.Done():
 	case runErr = <-c.fatal:
 	}
+	stopWorker()
 	slog.Info("controller shutting down")
 	// Shut down the queue so the worker's Get() unblocks, then wait for any
 	// in-flight reconcile to finish. Returning while a reconcile is still
@@ -170,7 +177,15 @@ func (c *Controller) processNextItem(ctx context.Context) bool {
 	}
 
 	err := c.reconciler.Reconcile(ctx)
+	c.waitingForRepair.Store(errors.Is(err, hostsfile.ErrMalformedBlock))
 	switch {
+	case errors.Is(err, hostsfile.ErrMalformedBlock):
+		slog.Error("managed markers need repair; waiting for file or service change", "error", err)
+		if c.FailureEvent != nil {
+			c.FailureEvent(err)
+		}
+		c.queue.Forget(item)
+		return true
 	case errors.Is(err, hostsfile.ErrUnlinkedInode):
 		c.queue.Forget(item)
 		if c.fatal != nil {
@@ -206,9 +221,23 @@ func (c *Controller) markReady() {
 	}
 }
 
-// Health reports whether a complete reconcile succeeded recently. Pending IPs
+// Health permits waiting for manual marker repair without restarting the worker.
+// Other failures still use the last successful reconcile to detect stalled work.
+func (c *Controller) Health(w http.ResponseWriter, req *http.Request) {
+	if c.waitingForRepair.Load() {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	c.Ready(w, req)
+}
+
+// Ready reports whether a complete reconcile succeeded recently. Pending IPs
 // count as success because other ready Services have already been published.
-func (c *Controller) Health(w http.ResponseWriter, _ *http.Request) {
+func (c *Controller) Ready(w http.ResponseWriter, _ *http.Request) {
+	if c.waitingForRepair.Load() {
+		http.Error(w, "managed markers need repair", http.StatusServiceUnavailable)
+		return
+	}
 	timeout := c.HealthTimeout
 	if timeout <= 0 {
 		timeout = 21 * time.Minute
@@ -219,4 +248,26 @@ func (c *Controller) Health(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// watchFile notices manual repairs and drift even when Services are idle.
+func (c *Controller) watchFile(ctx context.Context, previous os.FileInfo) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			current, _ := os.Stat(c.reconciler.HostsMgr.FilePath)
+			changed := (previous == nil) != (current == nil)
+			if previous != nil && current != nil {
+				changed = !os.SameFile(previous, current) || previous.Size() != current.Size() || !previous.ModTime().Equal(current.ModTime())
+			}
+			if changed {
+				c.queue.Add(sentinelKey)
+			}
+			previous = current
+		}
+	}
 }
