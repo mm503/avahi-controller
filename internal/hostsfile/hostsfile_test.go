@@ -498,3 +498,28 @@ func TestRoundtrip_WriteAndReadBack(t *testing.T) {
 		t.Errorf("unexpected order: %v", got)
 	}
 }
+
+func TestMarkers_GoldenFormat(t *testing.T) {
+	want := "### BEGIN k8s-avahi-controller ###\n# Managed by avahi-controller. Do not edit between these markers.\n10.0.0.1 nas.local\n### END k8s-avahi-controller ###"
+	got := renderBlock([]HostEntry{{IP: "10.0.0.1", Hostname: "nas.local"}})
+	if got != want {
+		t.Fatalf("persisted format changed:\n%s", got)
+	}
+	begin, end, err := blockBounds(want)
+	if err != nil || begin != 0 || end != len(want)-len("### END k8s-avahi-controller ###") {
+		t.Fatalf("legacy format unreadable: %d %d %v", begin, end, err)
+	}
+}
+
+func TestBlockBounds_IgnoresMarkerInComment(t *testing.T) {
+	comment := "# example: ### BEGIN k8s-avahi-controller ### and ### END k8s-avahi-controller ###\n"
+	a, b, err := blockBounds(comment)
+	if err != nil || a != -1 || b != -1 {
+		t.Fatalf("comment treated as marker: %d %d %v", a, b, err)
+	}
+	block := renderBlock([]HostEntry{{IP: "10.0.0.1", Hostname: "nas.local"}})
+	a, _, err = blockBounds(comment + block)
+	if err != nil || a != len(comment) {
+		t.Fatalf("bounds: %d %v", a, err)
+	}
+}
