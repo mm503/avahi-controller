@@ -110,6 +110,23 @@ helm upgrade avahi-controller avahi-controller/avahi-controller \
   --namespace kube-system
 ```
 
+The chart is released together with the controller and has the same version
+number. A breaking change in either bumps the major version.
+
+### Upgrading from 0.6.x (chart 0.1.x)
+
+The `--reload` and `--avahi-service` flags were removed, along with the host
+D-Bus socket mount; avahi-daemon reloads the hosts file on its own. Before
+upgrading:
+
+- Remove `--reload` and `--avahi-service` from `args`. The controller now
+  exits at startup if either is passed.
+- If you set your own `volumes`, `volumeMounts` or `env`, delete the
+  `/run/dbus/system_bus_socket` volume and mount and the
+  `DBUS_SYSTEM_BUS_ADDRESS` variable. Helm replaces these lists instead of
+  merging them, so a custom copy keeps mounting the host D-Bus socket, which
+  gives the root container control of systemd on the node.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
