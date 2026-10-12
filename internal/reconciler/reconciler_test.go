@@ -623,3 +623,20 @@ func TestReconcile_StaticOnlyFileNoServicesNotOpenedForWrite(t *testing.T) {
 		t.Fatalf("static file changed: %q %v", data, err)
 	}
 }
+
+func TestReconcile_PendingServiceDoesNotBlockReadyEntries(t *testing.T) {
+	r, mgr := newReconciler(t, []*corev1.Service{
+		makeSvc("default", "pending", "pending.local", ""),
+		makeSvc("default", "ready", "ready.local", "10.0.0.1"),
+	})
+	if err := r.Reconcile(context.Background()); !errors.Is(err, ErrMissingIP) {
+		t.Fatalf("got %v", err)
+	}
+	entries, err := mgr.ReadBlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Hostname != "ready.local" {
+		t.Fatalf("ready entries missing: %v", entries)
+	}
+}
