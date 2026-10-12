@@ -28,6 +28,9 @@ import (
 	"github.com/mm503/avahi-controller/internal/reconciler"
 )
 
+// version is supplied by release builds with -ldflags '-X main.version=...'.
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("fatal", "error", err)
@@ -48,8 +51,10 @@ func runArgs(args []string) error {
 		verbose       bool
 		debug         bool
 		reload        bool
+		showVersion   bool
 	)
 
+	flags.BoolVar(&showVersion, "version", false, "Print controller version and exit")
 	flags.StringVar(&hostsFilePath, "hosts-file", "/etc/avahi/hosts", "Path to the avahi hosts file")
 	flags.StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig (empty = in-cluster)")
 	flags.BoolVar(&cleanupOnExit, "cleanup-on-exit", false, "Remove managed block from hosts file on shutdown")
@@ -63,6 +68,10 @@ func runArgs(args []string) error {
 			return nil
 		}
 		return err
+	}
+	if showVersion {
+		fmt.Fprintln(os.Stdout, version)
+		return nil
 	}
 	if err := validateResync(resyncPeriod); err != nil {
 		return err
@@ -150,7 +159,7 @@ func runArgs(args []string) error {
 	}()
 	factory.Start(ctx.Done())
 
-	slog.Info("avahi-controller started", "node", nodeName, "hosts", hostsFilePath, "reload", reload)
+	slog.Info("avahi-controller started", "version", version, "node", nodeName, "hosts", hostsFilePath, "reload", reload)
 
 	return finishController(ctx, ctrl.Run, hostsMgr, reloader, cleanupOnExit)
 }

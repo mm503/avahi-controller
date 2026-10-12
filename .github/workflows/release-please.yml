@@ -52,10 +52,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Read release version
+        id: version
+        run: echo "version=$(jq -r '.["."]' .release-please-manifest.json)" >> "$GITHUB_OUTPUT"
+
       - name: Build binaries
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o controller-linux-amd64 ./cmd/controller/
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o controller-linux-arm64 ./cmd/controller/
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" -o controller-linux-amd64 ./cmd/controller/
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w -X main.version=${{ steps.version.outputs.version }}" -o controller-linux-arm64 ./cmd/controller/
 
       - name: Upload binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -67,7 +71,6 @@ jobs:
 
       - name: Smoke test release image
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o controller-linux-amd64 ./cmd/controller/
           docker build --build-arg TARGETARCH=amd64 -f Dockerfile.release -t avahi-controller-smoke .
           docker run --rm avahi-controller-smoke --help
 

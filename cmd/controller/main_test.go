@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/mm503/avahi-controller/internal/hostsfile"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,5 +102,27 @@ users:
 	}
 	if config.Host != "https://127.0.0.1:6443" || config.BearerToken != "test" {
 		t.Fatalf("config: %v", config.Host)
+	}
+}
+
+func TestRun_VersionDoesNotRequireKubernetes(t *testing.T) {
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stdout
+	os.Stdout = write
+	defer func() { os.Stdout = previous; read.Close(); write.Close() }()
+	if err := runArgs([]string{"--version"}); err != nil {
+		t.Fatal(err)
+	}
+	write.Close()
+	os.Stdout = previous
+	output, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(output) != version+"\n" {
+		t.Fatalf("version output: %q", output)
 	}
 }
