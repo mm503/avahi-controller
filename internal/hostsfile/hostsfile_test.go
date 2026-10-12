@@ -538,3 +538,44 @@ func TestHashCurrentBlock_StaticOnlyFileEqualsEmptyHash(t *testing.T) {
 		t.Fatalf("static-only hash %s differs from empty block", hash)
 	}
 }
+
+func TestReplaceBlock_ExactOutput(t *testing.T) {
+	entry := []HostEntry{{IP: "10.0.0.1", Hostname: "nas.local"}}
+	block := "### BEGIN k8s-avahi-controller ###\n# Managed by avahi-controller. Do not edit between these markers.\n10.0.0.1 nas.local\n### END k8s-avahi-controller ###"
+	for _, tc := range []struct {
+		name, old, want string
+		entries         []HostEntry
+	}{
+		{"empty", "", block + "\n", entry},
+		{"static newline", "127.0.0.1 localhost\n", "127.0.0.1 localhost\n\n" + block + "\n", entry},
+		{"static without newline", "127.0.0.1 localhost", "127.0.0.1 localhost\n\n" + block + "\n", entry},
+		{"replace", "# before\n" + block + "\n# after\n", "# before\n" + block + "\n# after\n", entry},
+		{"remove EOF", "# static\n\n" + block + "\n", "# static\n\n", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := replaceBlock(tc.old, tc.entries)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWriteBlock_MalformedDuplicateEnd(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	old := "### BEGIN k8s-avahi-controller ###\n10.0.0.1 old.local\n### END k8s-avahi-controller ###\n### END k8s-avahi-controller ###\n"
+	if err := os.WriteFile(path, []byte(old), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mgr := &Manager{FilePath: path}
+	if err := mgr.WriteBlock(nil); !errors.Is(err, ErrMalformedBlock) {
+		t.Fatalf("got %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != old {
+		t.Fatalf("malformed file modified: %q %v", got, err)
+	}
+}

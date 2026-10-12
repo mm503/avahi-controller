@@ -685,3 +685,36 @@ func TestBuildDesiredEntries_EmitsWarnings(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcile_MalformedBlockLeavesFileUntouched(t *testing.T) {
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")})
+	original := "### BEGIN k8s-avahi-controller ###\nmissing end\n"
+	if err := os.WriteFile(mgr.FilePath, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Reconcile(context.Background()); !errors.Is(err, hostsfile.ErrMalformedBlock) {
+		t.Fatalf("got %v", err)
+	}
+	actual, err := os.ReadFile(mgr.FilePath)
+	if err != nil || string(actual) != original {
+		t.Fatalf("file modified: %q %v", actual, err)
+	}
+}
+
+func TestReconcile_ReturnsWriteError(t *testing.T) {
+	r, mgr := newReconciler(t, []*corev1.Service{makeSvc("default", "nas", "nas.local", "10.0.0.1")})
+	mgr.FilePath = filepath.Join(mgr.FilePath, "missing", "hosts")
+	if err := r.Reconcile(context.Background()); err == nil || !strings.Contains(err.Error(), "write hosts block") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestValidHostname_MaxLength253(t *testing.T) {
+	prefix := strings.Repeat("a", 63) + "." + strings.Repeat("b", 63) + "." + strings.Repeat("c", 63) + "."
+	if !validHostname(prefix + strings.Repeat("d", 61)) {
+		t.Fatal("253-character hostname rejected")
+	}
+	if validHostname(prefix + strings.Repeat("d", 62)) {
+		t.Fatal("254-character hostname accepted")
+	}
+}
