@@ -3,6 +3,7 @@ package events
 
 import (
 	"fmt"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -41,7 +42,7 @@ func (r *Recorder) Stop() {
 	r.broadcaster.Shutdown()
 }
 
-// Warnf emits a formatted Warning event on the given Service.
-func (r *Recorder) Warnf(svc *corev1.Service, reason, format string, args ...any) {
+// Warnf emits a formatted Warning event on the given Kubernetes object.
+func (r *Recorder) Warnf(svc runtime.Object, reason, format string, args ...any) {
 	r.recorder.Event(svc, corev1.EventTypeWarning, reason, fmt.Sprintf(format, args...))
 }

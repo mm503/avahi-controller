@@ -4,7 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -113,6 +117,25 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
+	ctrl.HealthTimeout = resyncPeriod + time.Minute
+	ctrl.FailureEvent = func(err error) {
+		recorder.Warnf(&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: os.Getenv("POD_NAME"), Namespace: os.Getenv("POD_NAMESPACE")}}, "ReconcileFailed", "reconcile failed repeatedly: %v", err)
+	}
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		return fmt.Errorf("listen for health probes: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", ctrl.Health)
+	mux.HandleFunc("/readyz", ctrl.Health)
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	defer server.Close()
+	go func() {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
+			slog.Error("health server failed", "error", err)
+			stop()
+		}
+	}()
 	factory.Start(ctx.Done())
 
 	slog.Info("avahi-controller started", "node", nodeName, "hosts", hostsFilePath, "reload", reload)

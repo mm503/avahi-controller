@@ -12,3 +12,12 @@ printf '%s' "$enabled" | grep -Eq 'system_bus_socket'
 printf '%s' "$enabled" | grep -Eq 'DBUS_SYSTEM_BUS_ADDRESS'
 printf '%s' "$enabled" | grep -Eq -e '--reload=true'
 helm lint "$chart"
+if printf '%s' "$default" | grep -Eq 'readinessProbe:|livenessProbe:'; then
+  echo 'default chart probes an image without health endpoints' >&2
+  exit 1
+fi
+probed=$(helm template avahi-controller "$chart" --set healthProbes.enabled=true)
+printf '%s' "$probed" | grep -Eq 'readinessProbe:'
+printf '%s' "$probed" | grep -Eq 'livenessProbe:'
+printf '%s' "$probed" | grep -Eq '/readyz'
+printf '%s' "$probed" | grep -Eq '/healthz'

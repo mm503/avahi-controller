@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,12 @@ type Controller struct {
 	queue       workqueue.TypedRateLimitingInterface[string]
 	reconciler  *reconciler.Reconciler
 	initialDone atomic.Bool
+	lastSuccess atomic.Int64
+	// SyncTimeout and HealthTimeout default to one minute and 21 minutes.
+	SyncTimeout   time.Duration
+	HealthTimeout time.Duration
+	FailureEvent  func(error)
+	failures      int
 }
 
 // New creates a Controller. Call Run() to start it.
@@ -104,14 +111,20 @@ func (c *Controller) Run(ctx context.Context) error {
 	defer c.queue.ShutDown()
 
 	slog.Info("waiting for cache sync")
-	if !cache.WaitForCacheSync(ctx.Done(), c.informer.HasSynced) {
+	timeout := c.SyncTimeout
+	if timeout <= 0 {
+		timeout = time.Minute
+	}
+	syncCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if !cache.WaitForCacheSync(syncCtx.Done(), c.informer.HasSynced) {
 		// WaitForCacheSync also returns false when ctx is cancelled — a
 		// SIGTERM during startup is a clean shutdown, not an error.
 		if ctx.Err() != nil {
 			slog.Info("shutdown requested before cache sync completed")
 			return nil
 		}
-		return fmt.Errorf("timed out waiting for cache sync")
+		return fmt.Errorf("waiting for cache sync: %w", syncCtx.Err())
 	}
 	slog.Info("cache synced")
 
@@ -159,6 +172,10 @@ func (c *Controller) processNextItem(ctx context.Context) bool {
 		c.markReady()
 		slog.Debug("requeuing, waiting for IP assignment")
 	default:
+		c.failures++
+		if c.failures == 3 && c.FailureEvent != nil {
+			c.FailureEvent(err)
+		}
 		slog.Error("reconcile failed, requeuing with backoff", "error", err)
 	}
 	c.queue.AddRateLimited(item)
@@ -166,7 +183,24 @@ func (c *Controller) processNextItem(ctx context.Context) bool {
 }
 
 func (c *Controller) markReady() {
+	c.failures = 0
+	c.lastSuccess.Store(time.Now().UnixNano())
 	if c.initialDone.CompareAndSwap(false, true) {
 		slog.Info("controller ready")
 	}
+}
+
+// Health reports whether a complete reconcile succeeded recently. Pending IPs
+// count as success because other ready Services have already been published.
+func (c *Controller) Health(w http.ResponseWriter, _ *http.Request) {
+	timeout := c.HealthTimeout
+	if timeout <= 0 {
+		timeout = 21 * time.Minute
+	}
+	last := c.lastSuccess.Load()
+	if last == 0 || time.Since(time.Unix(0, last)) > timeout {
+		http.Error(w, "no recent successful reconcile", http.StatusServiceUnavailable)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }

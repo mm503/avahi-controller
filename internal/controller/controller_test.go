@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -105,4 +107,36 @@ func TestOnDelete_TombstoneWithNonServiceObject_DoesNotEnqueue(t *testing.T) {
 	if c.queue.Len() != 0 {
 		t.Errorf("expected 0 items in queue for invalid tombstone object, got %d", c.queue.Len())
 	}
+}
+
+func TestRun_ErrorsWhenCacheNeverSyncs(t *testing.T) {
+	informer := cache.NewSharedIndexInformer(&cache.ListWatch{}, &corev1.Service{}, 0, cache.Indexers{})
+	c, err := New(informer, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.SyncTimeout = 10 * time.Millisecond
+	if err := c.Run(context.Background()); err == nil {
+		t.Fatal("expected sync deadline error")
+	}
+}
+
+func TestHealth_StaleAfterRepeatedFailures(t *testing.T) {
+	c := newTestController()
+	c.HealthTimeout = time.Minute
+	check := func(want int) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		c.Health(w, httptest.NewRequest("GET", "/healthz", nil))
+		if w.Code != want {
+			t.Fatalf("status %d, want %d", w.Code, want)
+		}
+	}
+	check(http.StatusServiceUnavailable)
+	c.markReady()
+	check(http.StatusOK)
+	c.lastSuccess.Store(time.Now().Add(-2 * time.Minute).UnixNano())
+	check(http.StatusServiceUnavailable)
+	c.markReady()
+	check(http.StatusOK)
 }

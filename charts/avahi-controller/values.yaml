@@ -33,6 +33,10 @@ securityContext:
   capabilities:
     drop: ["ALL"]
 
+healthProbes:
+  # Enable only with an image containing /healthz and /readyz; 0.6.4 has neither.
+  enabled: false
+
 reload:
   enabled: false
 

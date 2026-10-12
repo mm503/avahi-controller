@@ -45,6 +45,22 @@ spec:
       containers:
         - name: controller
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          {{- if .Values.healthProbes.enabled }}
+          ports:
+            - name: health
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 90
+            periodSeconds: 10
+          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             {{- range .Values.args }}
@@ -67,6 +83,14 @@ spec:
               readOnly: true
             {{- end }}
           env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
