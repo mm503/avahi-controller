@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/tools/record"
 
 	"github.com/mm503/avahi-controller/internal/hostsfile"
 )
@@ -638,5 +639,49 @@ func TestReconcile_PendingServiceDoesNotBlockReadyEntries(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].Hostname != "ready.local" {
 		t.Fatalf("ready entries missing: %v", entries)
+	}
+}
+
+type fakeWarnings struct{ recorder *record.FakeRecorder }
+
+func (f fakeWarnings) Warnf(obj *corev1.Service, reason, format string, args ...any) {
+	f.recorder.Eventf(obj, corev1.EventTypeWarning, reason, format, args...)
+}
+
+func TestBuildDesiredEntries_EmitsWarnings(t *testing.T) {
+	cases := []struct {
+		name, reason string
+		services     []*corev1.Service
+		passes       int
+	}{
+		{"invalid", "InvalidHostname", []*corev1.Service{makeSvc("default", "bad", "bad!", "10.0.0.1")}, 1},
+		{"conflict", "HostnameConflict", []*corev1.Service{makeSvc("default", "a", "nas.local", "10.0.0.1"), makeSvc("default", "b", "NAS.local", "10.0.0.2")}, 1},
+		{"nonlocal once", "NonLocalHostname", []*corev1.Service{makeSvc("default", "nas", "nas.example", "10.0.0.1")}, 3},
+		{"pending threshold once", "PendingLoadBalancerIP", []*corev1.Service{makeSvc("default", "nas", "nas.local", "")}, pendingIPEventThreshold + 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := newReconciler(t, tc.services)
+			fake := record.NewFakeRecorder(100)
+			r.Recorder = fakeWarnings{fake}
+			for i := 0; i < tc.passes; i++ {
+				if _, _, err := r.buildDesiredEntries(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			select {
+			case event := <-fake.Events:
+				if !strings.HasPrefix(event, "Warning "+tc.reason+" ") {
+					t.Fatalf("event: %s", event)
+				}
+			default:
+				t.Fatal("warning never emitted")
+			}
+			select {
+			case event := <-fake.Events:
+				t.Fatalf("duplicate warning: %s", event)
+			default:
+			}
+		})
 	}
 }

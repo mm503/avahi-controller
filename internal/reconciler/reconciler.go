@@ -18,7 +18,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	corev1listers "k8s.io/client-go/listers/core/v1"
 
-	"github.com/mm503/avahi-controller/internal/events"
 	"github.com/mm503/avahi-controller/internal/hostsfile"
 )
 
@@ -50,11 +49,16 @@ func validHostname(s string) bool {
 	return len(s) <= 253 && hostnamePattern.MatchString(s) && net.ParseIP(s) == nil
 }
 
+// WarningRecorder emits Warning Events for Services rejected or still pending.
+type WarningRecorder interface {
+	Warnf(*corev1.Service, string, string, ...any)
+}
+
 // Reconciler performs full desired-state reconciliation on every call.
 type Reconciler struct {
 	Lister   corev1listers.ServiceLister
 	HostsMgr *hostsfile.Manager
-	Recorder *events.Recorder
+	Recorder WarningRecorder
 
 	// pendingIPCounts tracks how many consecutive reconcile passes each
 	// qualifying Service (namespace/name) has spent without a LoadBalancer
