@@ -605,3 +605,21 @@ func TestReconcile_CancelledDoesNotWrite(t *testing.T) {
 		t.Fatalf("wrote entries: %v, %v", entries, err)
 	}
 }
+
+func TestReconcile_StaticOnlyFileNoServicesNotOpenedForWrite(t *testing.T) {
+	r, mgr := newReconciler(t, nil)
+	original := []byte("127.0.0.1 localhost\n")
+	if err := os.WriteFile(mgr.FilePath, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	forbidHostsWrites(t, mgr.FilePath)
+	for i := 0; i < 3; i++ {
+		if err := r.Reconcile(context.Background()); err != nil {
+			t.Fatalf("unchanged static file opened for writing: %v", err)
+		}
+	}
+	data, err := os.ReadFile(mgr.FilePath)
+	if err != nil || string(data) != string(original) {
+		t.Fatalf("static file changed: %q %v", data, err)
+	}
+}

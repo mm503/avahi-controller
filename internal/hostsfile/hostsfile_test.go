@@ -523,3 +523,18 @@ func TestBlockBounds_IgnoresMarkerInComment(t *testing.T) {
 		t.Fatalf("bounds: %d %v", a, err)
 	}
 }
+
+func TestHashCurrentBlock_StaticOnlyFileEqualsEmptyHash(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hosts")
+	if err := os.WriteFile(path, []byte("127.0.0.1 localhost\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mgr := &Manager{FilePath: path}
+	hash, err := mgr.HashCurrentBlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != mgr.HashBlock(nil) {
+		t.Fatalf("static-only hash %s differs from empty block", hash)
+	}
+}
