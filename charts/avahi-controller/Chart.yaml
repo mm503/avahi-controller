@@ -30,3 +30,15 @@ annotations:
         - linux/amd64
         - linux/arm64
   # x-release-please-end
+  # Artifact Hub shows these for the version being released. Replace them
+  # (or remove them) in the next release so they do not carry over.
+  artifacthub.io/containsSecurityUpdates: "true"
+  artifacthub.io/changes: |
+    - kind: security
+      description: The chart no longer mounts the host D-Bus socket, which gave the root container control of systemd on the node
+    - kind: removed
+      description: The --reload and --avahi-service flags; avahi-daemon already reloads the hosts file when it changes. Remove them from args before upgrading
+    - kind: changed
+      description: The chart version now matches the controller version, so it jumps from 0.1.19 to the controller release
+    - kind: fixed
+      description: --cleanup-on-exit no longer makes avahi-daemon reload when there is nothing to remove
