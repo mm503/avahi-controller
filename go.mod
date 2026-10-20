@@ -2,7 +2,7 @@ module github.com/mm503/avahi-controller
 
 go 1.26.2
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/go-logr/logr v1.4.4
