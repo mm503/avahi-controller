@@ -6,7 +6,7 @@ image:
   repository: ghcr.io/mm503/avahi-controller
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "1.0.0" # x-release-please-version
+  tag: "1.0.1" # x-release-please-version
 
 imagePullSecrets: []
 nameOverride: ""

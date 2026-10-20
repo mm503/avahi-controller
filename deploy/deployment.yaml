@@ -30,7 +30,7 @@ spec:
             type: FileOrCreate
       containers:
         - name: controller
-          image: ghcr.io/mm503/avahi-controller:1.0.0 # x-release-please-version
+          image: ghcr.io/mm503/avahi-controller:1.0.1 # x-release-please-version
           imagePullPolicy: IfNotPresent
           args:
             - --cleanup-on-exit=false
