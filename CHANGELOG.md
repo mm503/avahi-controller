@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.1](https://github.com/mm503/avahi-controller/compare/v1.0.0...v1.0.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **deps:** update gcr.io/distroless/static-debian13:latest docker digest to 9e0130b ([62968d0](https://github.com/mm503/avahi-controller/commit/62968d01e6f622cc71f9a9dc8164ae7b3d9a208f))
+* **deps:** update go toolchain directive to v1.27.3 ([0de24cd](https://github.com/mm503/avahi-controller/commit/0de24cd4ea1c88291cf826591e9baf0c71dfe61c))
+
 ## [1.0.0](https://github.com/mm503/avahi-controller/compare/v0.6.4...v1.0.0) (2026-10-12)
 
 
