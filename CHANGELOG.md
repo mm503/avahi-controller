@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2](https://github.com/mm503/avahi-controller/compare/v1.0.1...v1.0.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* **deps:** update docker/login-action digest to 81c6f93 ([a1d89f3](https://github.com/mm503/avahi-controller/commit/a1d89f317c0e05b08a4fb3cec0cf5454260cb33e))
+* **deps:** update gcr.io/distroless/static-debian13:latest docker digest to 034df5c ([e6f576e](https://github.com/mm503/avahi-controller/commit/e6f576ee6d95588e8880d029b43bd076ffacd7c3))
+
 ## [1.0.1](https://github.com/mm503/avahi-controller/compare/v1.0.0...v1.0.1) (2026-10-20)
 
 
