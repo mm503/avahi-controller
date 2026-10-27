@@ -14,6 +14,47 @@ entries:
       artifacthub.io/containsSecurityUpdates: "true"
       artifacthub.io/images: |
         - name: avahi-controller
+          image: ghcr.io/mm503/avahi-controller:1.0.2
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+    apiVersion: v2
+    appVersion: 1.0.2
+    created: "2026-10-27T00:21:07.555509616Z"
+    description: A Helm chart for avahi-controller
+    digest: 8d6fd9381aa4123b904d3b4ca8a159909464bd36690645a49fd722f443cea0cf
+    home: https://github.com/mm503/avahi-controller
+    icon: https://raw.githubusercontent.com/avahi/avahi/refs/heads/master/docs/avahi-logo.png
+    keywords:
+    - avahi
+    - mdns
+    - dns
+    - local
+    - metallb
+    maintainers:
+    - name: mm503
+      url: https://github.com/mm503
+    name: avahi-controller
+    sources:
+    - https://github.com/mm503/avahi-controller
+    type: application
+    urls:
+    - https://github.com/mm503/avahi-controller/releases/download/v1.0.2/avahi-controller-1.0.2.tgz
+    version: 1.0.2
+  - annotations:
+      artifacthub.io/changes: |
+        - kind: security
+          description: The chart no longer mounts the host D-Bus socket, which gave the root container control of systemd on the node
+        - kind: removed
+          description: The --reload and --avahi-service flags; avahi-daemon already reloads the hosts file when it changes. Remove them from args before upgrading
+        - kind: changed
+          description: The chart version now matches the controller version, so it jumps from 0.1.19 to the controller release
+        - kind: fixed
+          description: --cleanup-on-exit no longer makes avahi-daemon reload when there is nothing to remove
+      artifacthub.io/containsSecurityUpdates: "true"
+      artifacthub.io/images: |
+        - name: avahi-controller
           image: ghcr.io/mm503/avahi-controller:1.0.1
           platforms:
             - linux/amd64
@@ -469,4 +510,4 @@ entries:
     urls:
     - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.1/avahi-controller-0.1.1.tgz
     version: 0.1.1
-generated: "2026-10-20T12:12:16.647124438Z"
+generated: "2026-10-27T00:21:07.55480031Z"
