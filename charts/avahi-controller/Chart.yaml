@@ -18,14 +18,14 @@ keywords:
 # The chart is released together with the controller and carries the same
 # version. release-please updates every line marked x-release-please-version
 # (and the marked block below) in its release PR; see scripts/check-versions.sh.
-version: 1.0.2 # x-release-please-version
-appVersion: "1.0.2" # x-release-please-version
+version: 1.0.3 # x-release-please-version
+appVersion: "1.0.3" # x-release-please-version
 annotations:
   artifacthub.io/license: MIT
   # x-release-please-start-version
   artifacthub.io/images: |
     - name: avahi-controller
-      image: ghcr.io/mm503/avahi-controller:1.0.2
+      image: ghcr.io/mm503/avahi-controller:1.0.3
       platforms:
         - linux/amd64
         - linux/arm64

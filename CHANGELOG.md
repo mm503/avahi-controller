@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/mm503/avahi-controller/compare/v1.0.2...v1.0.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deps:** update kubernetes monorepo to v0.37.2 ([9ed3619](https://github.com/mm503/avahi-controller/commit/9ed361924e9445ae362ae618093775108a2d0592))
+
 ## [1.0.2](https://github.com/mm503/avahi-controller/compare/v1.0.1...v1.0.2) (2026-10-26)
 
 
