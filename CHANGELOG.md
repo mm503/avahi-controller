@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.4](https://github.com/mm503/avahi-controller/compare/v1.0.3...v1.0.4) (2026-11-01)
+
+
+### Bug Fixes
+
+* **deps:** update gcr.io/distroless/static-debian13:latest docker digest to 4488103 ([dc88c02](https://github.com/mm503/avahi-controller/commit/dc88c02c98e9b09656aea7bf7071cfab95e84b58))
+* **docker:** build the image from scratch, distroless is not needed ([8ef416c](https://github.com/mm503/avahi-controller/commit/8ef416c634d33b349f243c6aef89e02dda3435bc))
+
 ## [1.0.3](https://github.com/mm503/avahi-controller/compare/v1.0.2...v1.0.3) (2026-10-28)
 
 
