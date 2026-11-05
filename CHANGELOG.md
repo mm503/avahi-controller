@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.5](https://github.com/mm503/avahi-controller/compare/v1.0.4...v1.0.5) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** update docker/login-action digest to 8aa5831 ([6b0089e](https://github.com/mm503/avahi-controller/commit/6b0089ecee972fbb38cb2737583f8297490fa2b7))
+
 ## [1.0.4](https://github.com/mm503/avahi-controller/compare/v1.0.3...v1.0.4) (2026-11-01)
 
 
