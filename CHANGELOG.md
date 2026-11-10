@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.5](https://github.com/mm503/avahi-controller/compare/v1.0.4...v1.0.5) (2026-11-10)
+
+
+### Bug Fixes
+
+* **deps:** update azure/setup-helm digest to 2f5e7bc ([64fb00f](https://github.com/mm503/avahi-controller/commit/64fb00f67c75e9d2e709f393450906afc4029ad6))
+* **deps:** update docker/login-action digest to 8aa5831 ([6b0089e](https://github.com/mm503/avahi-controller/commit/6b0089ecee972fbb38cb2737583f8297490fa2b7))
+* **deps:** update go toolchain directive to v1.27.4 ([44a3872](https://github.com/mm503/avahi-controller/commit/44a3872ea3a8acf8d889bbf1993725bdc837950d))
+
 ## [1.0.4](https://github.com/mm503/avahi-controller/compare/v1.0.3...v1.0.4) (2026-11-01)
 
 
