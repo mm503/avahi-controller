@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.6](https://github.com/mm503/avahi-controller/compare/v1.0.5...v1.0.6) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** update actions/setup-go digest to d8cbb80 ([b4742f0](https://github.com/mm503/avahi-controller/commit/b4742f0f6090be5ea61fae6f5fbe6b16c6fd5fb1))
+
 ## [1.0.5](https://github.com/mm503/avahi-controller/compare/v1.0.4...v1.0.5) (2026-11-10)
 
 
