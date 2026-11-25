@@ -3,6 +3,47 @@ entries:
   avahi-controller:
   - annotations:
       artifacthub.io/changes: |
+        - kind: fixed
+          description: Services sharing one LoadBalancer IP no longer produce hosts lines that avahi-daemon silently drops. One hostname per IP is published and the others get a SharedIPConflict warning event
+        - kind: fixed
+          description: Services publishing the same hostname for the same IP no longer raise a HostnameConflict warning
+        - kind: added
+          description: NodeAddress warning event when a LoadBalancer IP is the node's own address, which avahi-daemon does not publish. Uses the new HOST_IP environment variable
+        - kind: changed
+          description: Documentation now lists the limitations (one node, one hostname per IP, no node addresses) and alternatives
+      artifacthub.io/images: |
+        - name: avahi-controller
+          image: ghcr.io/mm503/avahi-controller:1.0.6
+          platforms:
+            - linux/amd64
+            - linux/arm64
+      artifacthub.io/license: MIT
+    apiVersion: v2
+    appVersion: 1.0.6
+    created: "2026-11-25T18:34:35.311319903Z"
+    description: Publishes Kubernetes LoadBalancer Service IPs as .local names over
+      mDNS through the node's avahi-daemon
+    digest: 00e8ea345bdf6009b7ea25880d65e656ebae3cfafe8dd95c039bf83efc5c2e07
+    home: https://github.com/mm503/avahi-controller
+    icon: https://raw.githubusercontent.com/avahi/avahi/refs/heads/master/docs/avahi-logo.png
+    keywords:
+    - avahi
+    - mdns
+    - dns
+    - local
+    - metallb
+    maintainers:
+    - name: mm503
+      url: https://github.com/mm503
+    name: avahi-controller
+    sources:
+    - https://github.com/mm503/avahi-controller
+    type: application
+    urls:
+    - https://github.com/mm503/avahi-controller/releases/download/v1.0.6/avahi-controller-1.0.6.tgz
+    version: 1.0.6
+  - annotations:
+      artifacthub.io/changes: |
         - kind: security
           description: The chart no longer mounts the host D-Bus socket, which gave the root container control of systemd on the node
         - kind: removed
@@ -633,4 +674,4 @@ entries:
     urls:
     - https://github.com/mm503/avahi-controller/releases/download/avahi-controller-0.1.1/avahi-controller-0.1.1.tgz
     version: 0.1.1
-generated: "2026-11-10T23:48:48.302695519Z"
+generated: "2026-11-25T18:34:35.310491009Z"
