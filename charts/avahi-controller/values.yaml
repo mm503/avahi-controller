@@ -43,6 +43,12 @@ env:
     valueFrom:
       fieldRef:
         fieldPath: spec.nodeName
+  # Lets the controller warn when a LoadBalancer IP is the node's own address,
+  # which avahi-daemon does not publish under another name.
+  - name: HOST_IP
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
 
 resources:
   requests:

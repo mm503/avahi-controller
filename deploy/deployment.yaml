@@ -34,7 +34,6 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - --cleanup-on-exit=false
-            - --verbose
           securityContext:
             seccompProfile:
               type: RuntimeDefault
@@ -58,3 +57,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP

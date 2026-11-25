@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -93,10 +95,16 @@ func run() error {
 	factory := informers.NewSharedInformerFactory(client, resyncPeriod)
 	svcInformer := factory.Core().V1().Services()
 
+	// HOST_IP comes from the pod's status.hostIP (or status.hostIPs). It is
+	// optional: without it the controller cannot warn about LoadBalancer IPs
+	// that are the node's own address.
+	nodeIPs := parseHostIPs(os.Getenv("HOST_IP"))
+
 	rec := &reconciler.Reconciler{
 		Lister:   svcInformer.Lister(),
 		HostsMgr: hostsMgr,
 		Recorder: recorder,
+		NodeIPs:  nodeIPs,
 	}
 
 	ctrl, err := controller.New(svcInformer.Informer(), rec)
@@ -109,7 +117,7 @@ func run() error {
 
 	factory.Start(ctx.Done())
 
-	slog.Info("avahi-controller started", "node", nodeName, "hosts", hostsFilePath)
+	slog.Info("avahi-controller started", "node", nodeName, "node_ips", nodeIPs, "hosts", hostsFilePath)
 
 	runErr := ctrl.Run(ctx)
 
@@ -145,4 +153,22 @@ func validateResync(period time.Duration) error {
 		return fmt.Errorf("resync-period must be positive, got %s", period)
 	}
 	return nil
+}
+
+// parseHostIPs splits a comma-separated list of node addresses, as provided
+// by the downward API in HOST_IP, and drops anything that is not an IP.
+func parseHostIPs(value string) []string {
+	var ips []string
+	for _, field := range strings.Split(value, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		if _, err := netip.ParseAddr(field); err != nil {
+			slog.Warn("ignoring HOST_IP value that is not an IP address", "value", field)
+			continue
+		}
+		ips = append(ips, field)
+	}
+	return ips
 }

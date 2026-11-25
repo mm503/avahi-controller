@@ -238,9 +238,10 @@ func blockBounds(content string) (int, int, error) {
 }
 
 // renderBlock formats entries as the managed block string, sorted by IP then
-// hostname so the output is deterministic even when Services share an IP
-// (e.g. MetalLB IP sharing). Returns empty string if entries is nil/empty
-// (signals block removal).
+// hostname so the output is deterministic even if entries share an IP. The
+// reconciler does not pass such entries: avahi-daemon publishes one hostname
+// per address and rejects the others. Returns empty string if entries is
+// nil/empty (signals block removal).
 func renderBlock(entries []HostEntry) string {
 	if len(entries) == 0 {
 		return ""

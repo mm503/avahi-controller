@@ -133,7 +133,7 @@
       }
     },
     "env": {
-      "description": "Environment variables for the controller container. NODE_NAME is set by default.",
+      "description": "Environment variables for the controller container. NODE_NAME and HOST_IP are set by default.",
       "type": "array",
       "items": {
         "type": "object",

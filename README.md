@@ -6,7 +6,9 @@ A Kubernetes controller that publishes LoadBalancer Service IPs to mDNS by manag
 
 The controller runs as a single pod pinned to one node where `avahi-daemon` is installed. It watches Services cluster-wide and updates a managed block in the node's hosts file whenever the desired state changes. avahi-daemon picks up the change by itself; see [How avahi picks up changes](#how-avahi-picks-up-changes).
 
-This can be particularly useful in combination with MetalLB, which assigns LAN IPs to your Kubernetes LoadBalancers.
+The controller does not speak mDNS. avahi-daemon on the node answers the queries, so names keep resolving while the pod is restarting or being upgraded; only changes wait for it. Clients need nothing beyond the mDNS support that macOS, Windows, iOS, current Android and most Linux desktops already have, and nothing has to be configured on the router or a DNS server.
+
+It is meant for a load balancer that hands out dedicated LAN addresses, such as MetalLB, kube-vip or Cilium LB-IPAM. It does not work with addresses that belong to a node, which is what the ServiceLB bundled with k3s assigns; see [Limitations](#limitations).
 
 Please note, this is not a production tool. mDNS is not a production-level solution. This is for a home lab and simple Kubernetes clusters.
 
@@ -20,6 +22,34 @@ annotations:
 ```
 
 The controller ignores Services without this annotation, and requeues with backoff if a LoadBalancer IP hasn't been assigned yet.
+
+Use a single label followed by `.local`, such as `myapp.local`. A name outside `.local` is written to the file with a warning, but mDNS clients do not look it up. A deeper name such as `myapp.lab.local` is published too, but Linux clients that use `nss-mdns` with its default settings reject `.local` names with more than two labels.
+
+## Limitations
+
+- **One node.** Only the designated node answers. If that node or its avahi-daemon is down, the names stop resolving as client caches expire (avahi publishes them with a 120-second TTL), even when the load balancer has moved the IP to another node. See [More than one node](#more-than-one-node).
+- **One hostname per IP address.** avahi publishes a reverse record (address to name) for every line in its hosts file and allows one per address. When Services with different hostnames share an IP (MetalLB `allow-shared-ip`), the controller publishes the hostname of the Service with the lowest namespace/name and skips the others with a `SharedIPConflict` Event. Services that share an IP and carry the same hostname are fine. For the same reason there is one hostname per Service and no aliases, so many names in front of one ingress controller IP are not possible.
+- **Not a node's own address.** avahi already publishes each node address under the node's hostname, so an entry for that address is rejected (`Local name collision` on that node, `Host name conflict` when another node running avahi owns it). This rules out k3s ServiceLB (klipper-lb) and any setup where the LoadBalancer IP is a node IP. The controller raises a `NodeAddress` Event when the IP is an address of the designated node; it cannot tell for other nodes.
+- **One address per Service.** The first IP in `status.loadBalancer.ingress` is used. A dual-stack Service gets a record for that address only.
+- **One network segment.** mDNS is link-local multicast. Clients on another VLAN or subnet, or behind a VPN, do not see the names unless something reflects mDNS between the segments.
+- **avahi-daemon on the host.** The node needs avahi-daemon installed with its configuration in `/etc/avahi`. Immutable node operating systems that cannot install host packages are not supported.
+
+### When to use something else
+
+- Many hostnames on one IP, Ingress hostnames, or nodes without avahi-daemon: [external-mdns](https://github.com/blake/external-mdns) answers mDNS itself instead of going through avahi and publishes Ingress hosts as well as LoadBalancer Services.
+- Names that must resolve across VLANs, outside `.local`, or for clients without mDNS: use real DNS. [external-dns](https://github.com/kubernetes-sigs/external-dns) can update a DNS server you already run, and [k8s_gateway](https://github.com/k8s-gateway/k8s_gateway) serves the names from CoreDNS inside the cluster. Both need a DNS server or a forwarding rule on the LAN, which is the setup step this controller avoids.
+
+## More than one node
+
+The chart runs one pod, and a pod can write only the hosts file of the node it is on, so one node publishes every name. `replicaCount` above 1 is rejected by the chart, and a second replica on the same node would only write the same file twice.
+
+Pinning to one node is a limit of this deployment, not of avahi or mDNS. The records point at the load balancer IP, not at the node, so any node can answer for them. Tested with avahi 0.8, three daemons on one segment:
+
+- Two nodes publishing the same name with the same address both establish it. Neither sees a conflict.
+- When one of them stops, the other keeps answering.
+- Two nodes publishing the same name with *different* addresses do conflict. The node that tries to publish the new address while another still holds the old one logs `Host name conflict for "myapp.local", not established.` and stays silent for that name until its avahi-daemon reloads. This is what happens when a Service's IP changes and the nodes do not update at the same instant.
+
+Running one controller pod on every node that has avahi-daemon is therefore possible, and it is not implemented yet. It needs a DaemonSet in the chart and a second reload a few seconds after each change so that a node that lost the race publishes again. `PROJECT.md` has the details.
 
 ## Hosts file block
 
@@ -82,6 +112,8 @@ which is enough to write a root-owned `0644` file and nothing more.
 | `--verbose` | `false` | Verbose logging: per-service reconcile details and scan summary |
 | `--debug` | `false` | Debug logging: same as verbose plus client-go internals (very noisy) |
 
+The pod also reads two environment variables, both set by the chart and the raw manifests: `NODE_NAME` (recorded as the source host of Events) and `HOST_IP` (the node's address, used only for the `NodeAddress` warning). Both are optional. If you override `env` in your values, copy them from the chart's `values.yaml`, because Helm replaces the list.
+
 ## Edge cases
 
 | Scenario | Handling |
@@ -92,6 +124,9 @@ which is enough to write a root-owned `0644` file and nothing more.
 | Two Services claim same hostname | The Service with the lowest namespace/name wins deterministically; the other is skipped with a log error and Kubernetes Event |
 | Annotation added to existing Service | Treated as new entry |
 | `IP hostname` line longer than 255 bytes | Skipped with a log error and `HostsLineTooLong` Kubernetes Event; avahi-daemon cannot read longer lines |
+| Services with different hostnames share one LoadBalancer IP | avahi publishes one hostname per address, so the Service with the lowest namespace/name wins; the others are skipped with a log error and `SharedIPConflict` Kubernetes Event |
+| Services with the same hostname share one LoadBalancer IP | One line is written; no conflict is reported |
+| LoadBalancer IP is the designated node's own address | The line is written, but avahi normally rejects it because the address already belongs to the node's hostname. The controller logs a warning and emits a `NodeAddress` Kubernetes Event once |
 | Annotation removed | Entry removed, same as delete |
 | Pod restarts, file already correct | Hash match → file is not opened for writing, so avahi does not reload |
 | avahi-daemon stopped or restarted | The controller keeps writing the file; avahi reads it when it starts |
@@ -101,7 +136,9 @@ which is enough to write a root-owned `0644` file and nothing more.
 
 ## Requirements
 
-- `avahi-daemon` installed and running on the designated node (Linux builds watch `/etc/avahi` with inotify by default)
+- `avahi-daemon` installed and running on the designated node (Linux builds watch `/etc/avahi` with inotify by default). If `/etc/avahi` does not exist, the pod cannot mount the hosts file and does not start
+- A load balancer that assigns dedicated LAN addresses (MetalLB, kube-vip, Cilium LB-IPAM), one per published hostname
+- Clients on the same network segment as the designated node
 - Node labeled with `avahi-controller: "true"` for pod scheduling
 - RBAC: `list/watch` on Services (cluster-wide), `create/patch` on Events
 
@@ -109,7 +146,7 @@ which is enough to write a root-owned `0644` file and nothing more.
 
 ### Label the node
 
-This is needed even on a single-node cluster (such as k3s and similar). Without the label, the pod's `nodeSelector` will not match any node and the pod will remain Pending. The controller is intentionally pinned to one node to ensure only one instance manages the hosts file on the node where `avahi-daemon` is running.
+This is needed even on a single-node cluster (such as k3s and similar). Without the label, the pod's `nodeSelector` will not match any node and the pod will remain Pending. The controller writes the hosts file of the node it runs on, so it is pinned to the node where `avahi-daemon` is running and must not move to a node without it.
 
 Label the node where `avahi-daemon` is running:
 
@@ -148,6 +185,7 @@ helm install avahi-controller ./charts/avahi-controller \
 | `resources.limits` | `cpu: 50m, memory: 64Mi` | Resource limits |
 | `serviceAccount.create` | `true` | Create a ServiceAccount |
 | `rbac.create` | `true` | Create ClusterRole and ClusterRoleBinding |
+| `terminationGracePeriodSeconds` | `30` | Grace period for pod shutdown |
 
 The chart defaults to GHCR. To pull from Docker Hub instead, set
 `--set image.repository=mm404/avahi-controller`.
