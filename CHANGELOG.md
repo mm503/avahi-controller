@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.6](https://github.com/mm503/avahi-controller/compare/v1.0.5...v1.0.6) (2026-11-25)
+
+
+### Bug Fixes
+
+* **deps:** update actions/setup-go digest to d8cbb80 ([b4742f0](https://github.com/mm503/avahi-controller/commit/b4742f0f6090be5ea61fae6f5fbe6b16c6fd5fb1))
+* **reconciler:** publish one hostname per IP and warn about node addresses ([950eb4b](https://github.com/mm503/avahi-controller/commit/950eb4b855a18dcaa2efbcacc0a4b6eb1b80a58f))
+
 ## [1.0.5](https://github.com/mm503/avahi-controller/compare/v1.0.4...v1.0.5) (2026-11-10)
 
 
