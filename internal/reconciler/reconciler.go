@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"regexp"
 	"sort"
 	"strings"
@@ -59,6 +60,13 @@ type Reconciler struct {
 	HostsMgr *hostsfile.Manager
 	Recorder WarningRecorder
 
+	// NodeIPs holds the addresses of the node whose avahi-daemon publishes
+	// the hosts file (HOST_IP in the pod). A LoadBalancer IP equal to one of
+	// them is written but triggers a warning, because avahi-daemon already
+	// publishes that address under the node's hostname and rejects a second
+	// name for it. Empty disables the check.
+	NodeIPs []string
+
 	// pendingIPCounts tracks how many consecutive reconcile passes each
 	// qualifying Service (namespace/name) has spent without a LoadBalancer
 	// IP, so a stuck assignment can be surfaced as a Warning event instead
@@ -66,11 +74,12 @@ type Reconciler struct {
 	// goroutine.
 	pendingIPCounts map[string]int
 
-	// warnedNonLocal remembers which service/hostname pairs have already
-	// been warned about missing the .local suffix, so the warning fires
-	// once instead of on every reconcile pass. Only touched by the single
-	// worker goroutine.
-	warnedNonLocal map[string]bool
+	// warnedOnce remembers the advisory warnings (hostname outside .local,
+	// LoadBalancer IP that is a node address) already raised for a Service,
+	// so each fires once instead of on every reconcile pass. The entry is
+	// still published in these cases. Only touched by the single worker
+	// goroutine.
+	warnedOnce map[string]bool
 
 	// startupLogged is set after the first reconcile pass has logged the
 	// entries found in the hosts file, so the inventory is printed exactly
@@ -154,14 +163,18 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		return svcs[i].Name < svcs[j].Name
 	})
 
-	// lowercased hostname → "namespace/name" of the first Service to claim it.
-	// DNS/mDNS names are case-insensitive, so Foo.local and foo.local conflict.
-	claimed := make(map[string]string)
+	// lowercased hostname → the first Service to claim it. DNS/mDNS names are
+	// case-insensitive, so Foo.local and foo.local conflict.
+	claimed := make(map[string]claim)
+	// normalized IP → the first Service to claim it. avahi-daemon publishes
+	// a reverse record for every hosts line and allows one per address, so
+	// it rejects a second hostname for an IP ("Local name collision").
+	claimedIP := make(map[string]claim)
 	var entries []hostsfile.HostEntry
 	needsRequeue := false
 	skipped := 0
 	pendingIP := make(map[string]int)
-	nonLocal := make(map[string]bool)
+	warned := make(map[string]bool)
 
 	for _, svc := range svcs {
 		if !r.qualifies(svc) {
@@ -211,13 +224,14 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		}
 
 		hostnameKey := strings.ToLower(hostname)
+		ipKey := normalizeIP(ip)
 
 		// mDNS resolvers only look up names under .local; anything else is
 		// published by avahi but effectively unreachable. Warn once.
 		if !strings.HasSuffix(hostnameKey, ".local") {
-			warnKey := key + " " + hostnameKey
-			nonLocal[warnKey] = true
-			if !r.warnedNonLocal[warnKey] {
+			warnKey := "nonlocal " + key + " " + hostnameKey
+			warned[warnKey] = true
+			if !r.warnedOnce[warnKey] {
 				slog.Warn("hostname does not end in .local, mDNS clients will not resolve it",
 					"hostname", hostname, "service", key)
 				if r.Recorder != nil {
@@ -228,14 +242,52 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 		}
 
 		if owner, conflict := claimed[hostnameKey]; conflict {
-			slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner, "skipped", key)
+			if owner.ipKey == ipKey {
+				// Another Service already publishes this exact record (for
+				// example TCP and UDP Services sharing one address).
+				slog.Debug("record already published by another service", "hostname", hostname, "ip", ip, "owner", owner.service, "service", key)
+				continue
+			}
+			slog.Error("hostname conflict, skipping service", "hostname", hostname, "owner", owner.service, "skipped", key)
 			if r.Recorder != nil {
 				r.Recorder.Warnf(svc, "HostnameConflict",
-					"hostname %q is already claimed by %s", hostname, owner)
+					"hostname %q is already claimed by %s", hostname, owner.service)
 			}
 			continue
 		}
-		claimed[hostnameKey] = key
+
+		if owner, shared := claimedIP[ipKey]; shared {
+			slog.Error("IP already has a hostname, skipping service: avahi-daemon publishes one hostname per address",
+				"ip", ip, "hostname", hostname, "owner", owner.service, "owner_hostname", owner.hostname, "skipped", key)
+			if r.Recorder != nil {
+				r.Recorder.Warnf(svc, "SharedIPConflict",
+					"IP %s is already published as %q by %s; avahi-daemon publishes one hostname per address, so %q is not published",
+					ip, owner.hostname, owner.service, hostname)
+			}
+			continue
+		}
+
+		// avahi-daemon publishes the node's own addresses under the node's
+		// hostname and rejects another name for them. The controller cannot
+		// see that rejection, so say it here. Warn once; the entry is still
+		// written in case avahi is configured not to publish its addresses.
+		if r.isNodeIP(ipKey) {
+			warnKey := "nodeip " + key + " " + ipKey
+			warned[warnKey] = true
+			if !r.warnedOnce[warnKey] {
+				slog.Warn("LoadBalancer IP is the node's own address, avahi-daemon normally refuses to publish another name for it",
+					"ip", ip, "hostname", hostname, "service", key)
+				if r.Recorder != nil {
+					r.Recorder.Warnf(svc, "NodeAddress",
+						"IP %s is an address of the node running avahi-daemon, which normally refuses to publish another name for it; %q will probably not resolve. Use a load balancer that assigns dedicated addresses",
+						ip, hostname)
+				}
+			}
+		}
+
+		owner := claim{service: key, hostname: hostname, ipKey: ipKey}
+		claimed[hostnameKey] = owner
+		claimedIP[ipKey] = owner
 
 		slog.Debug("include service", "service", key, "ip", ip, "hostname", hostname)
 		entries = append(entries, entry)
@@ -244,10 +296,38 @@ func (r *Reconciler) buildDesiredEntries() ([]hostsfile.HostEntry, bool, error) 
 	// Replace rather than update in place so services that got their IP (or
 	// stopped qualifying) drop out and start fresh if they regress later.
 	r.pendingIPCounts = pendingIP
-	r.warnedNonLocal = nonLocal
+	r.warnedOnce = warned
 
 	slog.Debug("scan complete", "total", len(svcs), "qualifying", len(entries), "skipped", skipped)
 	return entries, needsRequeue, nil
+}
+
+// claim records which Service owns a hostname or an IP in the current pass.
+type claim struct {
+	service  string // namespace/name
+	hostname string
+	ipKey    string
+}
+
+// normalizeIP returns the canonical text form of an IP address so that
+// different spellings of one address compare equal. Text that does not parse
+// is returned unchanged.
+func normalizeIP(s string) string {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return s
+	}
+	return addr.Unmap().String()
+}
+
+// isNodeIP reports whether the normalized IP is one of the node's own addresses.
+func (r *Reconciler) isNodeIP(ipKey string) bool {
+	for _, nodeIP := range r.NodeIPs {
+		if normalizeIP(nodeIP) == ipKey {
+			return true
+		}
+	}
+	return false
 }
 
 // qualifies returns true if the Service should be managed by this controller.

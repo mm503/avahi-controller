@@ -11,6 +11,12 @@ configured nodeSelector. Label the node where avahi-daemon is running:
 
   kubectl label node <node-name> avahi-controller=true
 
-This is intentional — only one node should manage the avahi hosts file,
-and it must be the node where avahi-daemon is installed and running.
+This is intentional — the controller writes the avahi hosts file of the
+node it runs on, so it must be the node where avahi-daemon is installed
+and running.
+
+LoadBalancer IPs must be dedicated addresses (MetalLB, kube-vip, ...),
+one per hostname. avahi does not publish a node's own address or a
+second hostname for the same IP; the controller reports both as Warning
+events on the Service.
 ---------------------------------------------------------------------------

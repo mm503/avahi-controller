@@ -1,6 +1,6 @@
 apiVersion: v2
 name: avahi-controller
-description: A Helm chart for avahi-controller
+description: Publishes Kubernetes LoadBalancer Service IPs as .local names over mDNS through the node's avahi-daemon
 type: application
 home: https://github.com/mm503/avahi-controller
 icon: https://raw.githubusercontent.com/avahi/avahi/refs/heads/master/docs/avahi-logo.png
@@ -31,14 +31,15 @@ annotations:
         - linux/arm64
   # x-release-please-end
   # Artifact Hub shows these for the version being released. Replace them
-  # (or remove them) in the next release so they do not carry over.
-  artifacthub.io/containsSecurityUpdates: "true"
+  # (or remove them) in the next release so they do not carry over. Add
+  # artifacthub.io/containsSecurityUpdates: "true" only for a release that
+  # fixes a security issue.
   artifacthub.io/changes: |
-    - kind: security
-      description: The chart no longer mounts the host D-Bus socket, which gave the root container control of systemd on the node
-    - kind: removed
-      description: The --reload and --avahi-service flags; avahi-daemon already reloads the hosts file when it changes. Remove them from args before upgrading
-    - kind: changed
-      description: The chart version now matches the controller version, so it jumps from 0.1.19 to the controller release
     - kind: fixed
-      description: --cleanup-on-exit no longer makes avahi-daemon reload when there is nothing to remove
+      description: Services sharing one LoadBalancer IP no longer produce hosts lines that avahi-daemon silently drops. One hostname per IP is published and the others get a SharedIPConflict warning event
+    - kind: fixed
+      description: Services publishing the same hostname for the same IP no longer raise a HostnameConflict warning
+    - kind: added
+      description: NodeAddress warning event when a LoadBalancer IP is the node's own address, which avahi-daemon does not publish. Uses the new HOST_IP environment variable
+    - kind: changed
+      description: Documentation now lists the limitations (one node, one hostname per IP, no node addresses) and alternatives

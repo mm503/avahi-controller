@@ -254,6 +254,140 @@ func TestBuildDesiredEntries_ConflictWinnerIsDeterministic(t *testing.T) {
 	}
 }
 
+// avahi-daemon publishes a reverse record for every hosts line and allows one
+// per address, so a second hostname on the same IP is rejected by avahi
+// ("Local name collision"). The reconciler must pick the winner itself instead
+// of writing lines avahi silently drops.
+func TestBuildDesiredEntries_SharedIPPublishesOneHostname(t *testing.T) {
+	svc1 := makeSvc("default", "svc1", "one.local", "10.0.0.1")
+	svc2 := makeSvc("default", "svc2", "two.local", "10.0.0.1")
+	other := makeSvc("default", "svc3", "three.local", "10.0.0.2")
+
+	// Opposite lister orders: the winner must not change.
+	for _, svcs := range [][]*corev1.Service{
+		{svc1, svc2, other},
+		{other, svc2, svc1},
+	} {
+		r, _ := newReconciler(t, svcs)
+		entries, requeue, err := r.buildDesiredEntries()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if requeue {
+			t.Error("a shared IP should not trigger requeue")
+		}
+		if len(entries) != 2 {
+			t.Fatalf("expected 2 entries (one per IP), got %v", entries)
+		}
+		for _, e := range entries {
+			if e.Hostname == "two.local" {
+				t.Errorf("svc2 shares svc1's IP and should be skipped, got %v", entries)
+			}
+		}
+	}
+}
+
+func TestBuildDesiredEntries_SharedIPComparesAddressesNotStrings(t *testing.T) {
+	svc1 := makeSvc("default", "svc1", "one.local", "fd00::1")
+	svc2 := makeSvc("default", "svc2", "two.local", "FD00:0:0:0:0:0:0:1")
+
+	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2})
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Hostname != "one.local" {
+		t.Fatalf("two spellings of one IPv6 address should count as shared, got %v", entries)
+	}
+}
+
+// A Service skipped for sharing an IP must not reserve its hostname.
+func TestBuildDesiredEntries_SharedIPLoserDoesNotClaimHostname(t *testing.T) {
+	svc1 := makeSvc("default", "svc1", "one.local", "10.0.0.1")
+	svc2 := makeSvc("default", "svc2", "two.local", "10.0.0.1")
+	svc3 := makeSvc("default", "svc3", "two.local", "10.0.0.3")
+
+	r, _ := newReconciler(t, []*corev1.Service{svc1, svc2, svc3})
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected one.local and two.local, got %v", entries)
+	}
+	for _, e := range entries {
+		if e.Hostname == "two.local" && e.IP != "10.0.0.3" {
+			t.Errorf("two.local should come from svc3, got %+v", e)
+		}
+	}
+}
+
+// Two Services publishing the same hostname for the same IP (for example a
+// TCP and a UDP Service sharing a MetalLB address) describe one record.
+func TestBuildDesiredEntries_IdenticalRecordIsNotAConflict(t *testing.T) {
+	tcp := makeSvc("default", "dns-tcp", "dns.local", "10.0.0.1")
+	udp := makeSvc("default", "dns-udp", "DNS.local", "10.0.0.1")
+
+	r, _ := newReconciler(t, []*corev1.Service{tcp, udp})
+	fake := record.NewFakeRecorder(10)
+	r.Recorder = fakeWarnings{fake}
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Hostname != "dns.local" {
+		t.Fatalf("expected the single shared record, got %v", entries)
+	}
+	select {
+	case event := <-fake.Events:
+		t.Fatalf("identical record should not warn: %s", event)
+	default:
+	}
+}
+
+// avahi-daemon already publishes the node's own addresses under the node's
+// hostname and rejects a second name for them, so the entry is written but
+// never resolves. The controller cannot see that; warn instead.
+func TestBuildDesiredEntries_WarnsOnceForNodeAddress(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.local", "192.168.1.10")
+	r, _ := newReconciler(t, []*corev1.Service{svc})
+	r.NodeIPs = []string{"192.168.1.10"}
+
+	buf := captureLog(t)
+	entries, _, err := r.buildDesiredEntries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("the entry should still be written, got %v", entries)
+	}
+	if !strings.Contains(buf.String(), "node's own address") {
+		t.Errorf("expected node address warning, got:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	if _, _, err := r.buildDesiredEntries(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "node's own address") {
+		t.Errorf("warning should fire only once, got:\n%s", buf.String())
+	}
+}
+
+func TestBuildDesiredEntries_NoNodeAddressWarningForOtherIPs(t *testing.T) {
+	svc := makeSvc("default", "svc", "app.local", "192.168.1.100")
+	r, _ := newReconciler(t, []*corev1.Service{svc})
+	r.NodeIPs = []string{"192.168.1.10"}
+
+	buf := captureLog(t)
+	if _, _, err := r.buildDesiredEntries(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "node's own address") {
+		t.Errorf("unexpected node address warning:\n%s", buf.String())
+	}
+}
+
 func TestBuildDesiredEntries_RejectsInvalidHostname(t *testing.T) {
 	invalid := []string{
 		"has space.local",
@@ -657,6 +791,7 @@ func TestBuildDesiredEntries_EmitsWarnings(t *testing.T) {
 		{"invalid", "InvalidHostname", []*corev1.Service{makeSvc("default", "bad", "bad!", "10.0.0.1")}, 1},
 		{"conflict", "HostnameConflict", []*corev1.Service{makeSvc("default", "a", "nas.local", "10.0.0.1"), makeSvc("default", "b", "NAS.local", "10.0.0.2")}, 1},
 		{"nonlocal once", "NonLocalHostname", []*corev1.Service{makeSvc("default", "nas", "nas.example", "10.0.0.1")}, 3},
+		{"shared ip", "SharedIPConflict", []*corev1.Service{makeSvc("default", "a", "nas.local", "10.0.0.1"), makeSvc("default", "b", "media.local", "10.0.0.1")}, 1},
 		{"pending threshold once", "PendingLoadBalancerIP", []*corev1.Service{makeSvc("default", "nas", "nas.local", "")}, pendingIPEventThreshold + 3},
 	}
 	for _, tc := range cases {
